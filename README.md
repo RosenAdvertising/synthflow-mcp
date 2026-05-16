@@ -1,5 +1,11 @@
 # synthflow-mcp
 
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-F59E0B.svg)](https://opensource.org/licenses/MIT)
+[![17 tools](https://img.shields.io/badge/tools-17-22C55E.svg)](https://github.com/RosenAdvertising/synthflow-mcp)
+[![MCP](https://img.shields.io/badge/MCP-compatible-7C3AED.svg)](https://modelcontextprotocol.io)
+[![Synthflow](https://img.shields.io/badge/Synthflow-Voice%20AI-FF6B35.svg)](https://synthflow.ai)
+
 MCP server for [Synthflow Voice AI](https://synthflow.ai). Manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics directly from Claude Desktop or any MCP-compatible client.
 
 ## Requirements
