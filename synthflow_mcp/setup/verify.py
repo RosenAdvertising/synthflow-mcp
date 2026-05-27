@@ -5,6 +5,7 @@ import sys
 def main():
     try:
         from synthflow_mcp.client import SynthflowClient
+
         client = SynthflowClient()
         info = client.who_am_i()
         print("Connected to Synthflow.")

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-import os, subprocess, sys
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 CONFIG_DIR = Path.home() / ".synthflow-mcp"

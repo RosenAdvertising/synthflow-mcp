@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-import json, os, sys, time, requests
+import os
+import sys
+import time
+import requests
 from pathlib import Path
 
 BASE_URL = "https://api.synthflow.ai/v2"
@@ -31,7 +34,9 @@ def _json_response(resp):
     try:
         return resp.json()
     except ValueError:
-        raise RuntimeError(f"Synthflow API returned non-JSON ({resp.status_code}): {resp.text[:200]}")
+        raise RuntimeError(
+            f"Synthflow API returned non-JSON ({resp.status_code}): {resp.text[:200]}"
+        )
 
 
 class SynthflowClient:
@@ -40,26 +45,38 @@ class SynthflowClient:
         if not api_key:
             raise RuntimeError("No Synthflow API key found. Run: synthflow-mcp-setup")
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+        )
 
     def _request(self, method, path, params=None, json_body=None, _rate_retries=0):
         url = f"{BASE_URL}/{path.lstrip('/')}"
         resp = self.session.request(method, url, params=params, json=json_body)
         if resp.status_code == 401:
-            raise RuntimeError("Synthflow API key invalid or expired. Run: synthflow-mcp-setup")
+            raise RuntimeError(
+                "Synthflow API key invalid or expired. Run: synthflow-mcp-setup"
+            )
         if resp.status_code == 429 and _rate_retries < 3:
             wait = _retry_after_seconds(resp)
             print(f"Rate limited. Waiting {wait}s...", file=sys.stderr)
             time.sleep(wait)
-            return self._request(method, path, params=params, json_body=json_body, _rate_retries=_rate_retries + 1)
+            return self._request(
+                method,
+                path,
+                params=params,
+                json_body=json_body,
+                _rate_retries=_rate_retries + 1,
+            )
         if resp.status_code == 204:
             return {"success": True}
         if not resp.ok:
-            raise RuntimeError(f"Synthflow API error {resp.status_code}: {resp.text[:400]}")
+            raise RuntimeError(
+                f"Synthflow API error {resp.status_code}: {resp.text[:400]}"
+            )
         return _json_response(resp)
 
     def get(self, path, params=None):

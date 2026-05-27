@@ -43,25 +43,25 @@ Restart Claude Desktop after saving.
 
 ## Tools (17)
 
-| Tool | Description |
-|---|---|
-| `who_am_i` | Current account info |
-| `list_agents` | List all voice agents |
-| `get_agent` | Get agent by ID |
-| `create_agent` | Create a new agent |
-| `update_agent` | Update agent name/prompt/voice |
-| `delete_agent` | Delete an agent |
-| `list_phone_numbers` | List provisioned numbers |
-| `get_phone_number` | Get number by ID |
-| `provision_phone_number` | Provision a new number |
-| `assign_agent_to_number` | Assign agent to a phone number |
-| `list_calls` | List calls (optional agent filter) |
-| `get_call` | Get call by ID |
-| `get_call_transcript` | Get full transcript for a call |
-| `initiate_call` | Trigger an outbound call |
-| `list_knowledge_bases` | List knowledge bases |
-| `create_knowledge_base` | Create a knowledge base |
-| `get_analytics` | Get analytics (optional date range) |
+| Tool                     | Description                         |
+| ------------------------ | ----------------------------------- |
+| `who_am_i`               | Current account info                |
+| `list_agents`            | List all voice agents               |
+| `get_agent`              | Get agent by ID                     |
+| `create_agent`           | Create a new agent                  |
+| `update_agent`           | Update agent name/prompt/voice      |
+| `delete_agent`           | Delete an agent                     |
+| `list_phone_numbers`     | List provisioned numbers            |
+| `get_phone_number`       | Get number by ID                    |
+| `provision_phone_number` | Provision a new number              |
+| `assign_agent_to_number` | Assign agent to a phone number      |
+| `list_calls`             | List calls (optional agent filter)  |
+| `get_call`               | Get call by ID                      |
+| `get_call_transcript`    | Get full transcript for a call      |
+| `initiate_call`          | Trigger an outbound call            |
+| `list_knowledge_bases`   | List knowledge bases                |
+| `create_knowledge_base`  | Create a knowledge base             |
+| `get_analytics`          | Get analytics (optional date range) |
 
 ## Configuration
 

@@ -13,6 +13,7 @@ mcp = FastMCP(
 
 # --- Account ---
 
+
 @mcp.tool()
 def who_am_i() -> str:
     """Return current Synthflow account info."""
@@ -20,6 +21,7 @@ def who_am_i() -> str:
 
 
 # --- Agents ---
+
 
 @mcp.tool()
 def list_agents(page: int = 1, limit: int = 25) -> str:
@@ -34,15 +36,29 @@ def get_agent(agent_id: str) -> str:
 
 
 @mcp.tool()
-def create_agent(name: str, system_prompt: str, voice_id: str = "", language: str = "en-US") -> str:
+def create_agent(
+    name: str, system_prompt: str, voice_id: str = "", language: str = "en-US"
+) -> str:
     """Create a new Synthflow voice agent."""
-    return json.dumps(SynthflowClient().create_agent(name, system_prompt, voice_id=voice_id, language=language), indent=2)
+    return json.dumps(
+        SynthflowClient().create_agent(
+            name, system_prompt, voice_id=voice_id, language=language
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
-def update_agent(agent_id: str, name: str = "", system_prompt: str = "", voice_id: str = "") -> str:
+def update_agent(
+    agent_id: str, name: str = "", system_prompt: str = "", voice_id: str = ""
+) -> str:
     """Update an existing Synthflow agent's name, prompt, or voice."""
-    return json.dumps(SynthflowClient().update_agent(agent_id, name=name, system_prompt=system_prompt, voice_id=voice_id), indent=2)
+    return json.dumps(
+        SynthflowClient().update_agent(
+            agent_id, name=name, system_prompt=system_prompt, voice_id=voice_id
+        ),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -53,10 +69,13 @@ def delete_agent(agent_id: str) -> str:
 
 # --- Phone Numbers ---
 
+
 @mcp.tool()
 def list_phone_numbers(page: int = 1, limit: int = 25) -> str:
     """List all provisioned Synthflow phone numbers."""
-    return json.dumps(SynthflowClient().list_phone_numbers(page=page, limit=limit), indent=2)
+    return json.dumps(
+        SynthflowClient().list_phone_numbers(page=page, limit=limit), indent=2
+    )
 
 
 @mcp.tool()
@@ -68,21 +87,30 @@ def get_phone_number(number_id: str) -> str:
 @mcp.tool()
 def provision_phone_number(area_code: str = "", country: str = "US") -> str:
     """Provision a new phone number in Synthflow."""
-    return json.dumps(SynthflowClient().provision_phone_number(area_code=area_code, country=country), indent=2)
+    return json.dumps(
+        SynthflowClient().provision_phone_number(area_code=area_code, country=country),
+        indent=2,
+    )
 
 
 @mcp.tool()
 def assign_agent_to_number(number_id: str, agent_id: str) -> str:
     """Assign a Synthflow agent to a phone number."""
-    return json.dumps(SynthflowClient().assign_agent_to_number(number_id, agent_id), indent=2)
+    return json.dumps(
+        SynthflowClient().assign_agent_to_number(number_id, agent_id), indent=2
+    )
 
 
 # --- Calls ---
 
+
 @mcp.tool()
 def list_calls(page: int = 1, limit: int = 25, agent_id: str = "") -> str:
     """List calls, optionally filtered by agent ID."""
-    return json.dumps(SynthflowClient().list_calls(page=page, limit=limit, agent_id=agent_id), indent=2)
+    return json.dumps(
+        SynthflowClient().list_calls(page=page, limit=limit, agent_id=agent_id),
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -100,10 +128,14 @@ def get_call_transcript(call_id: str) -> str:
 @mcp.tool()
 def initiate_call(agent_id: str, to_number: str, from_number: str = "") -> str:
     """Initiate an outbound call using a Synthflow agent."""
-    return json.dumps(SynthflowClient().initiate_call(agent_id, to_number, from_number=from_number), indent=2)
+    return json.dumps(
+        SynthflowClient().initiate_call(agent_id, to_number, from_number=from_number),
+        indent=2,
+    )
 
 
 # --- Knowledge Bases ---
+
 
 @mcp.tool()
 def list_knowledge_bases() -> str:
@@ -119,10 +151,14 @@ def create_knowledge_base(name: str, content: str) -> str:
 
 # --- Analytics ---
 
+
 @mcp.tool()
 def get_analytics(start_date: str = "", end_date: str = "") -> str:
     """Get Synthflow analytics, optionally filtered by date range (YYYY-MM-DD)."""
-    return json.dumps(SynthflowClient().get_analytics(start_date=start_date, end_date=end_date), indent=2)
+    return json.dumps(
+        SynthflowClient().get_analytics(start_date=start_date, end_date=end_date),
+        indent=2,
+    )
 
 
 def main():
