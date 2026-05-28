@@ -5,7 +5,9 @@ import time
 import requests
 from pathlib import Path
 
-BASE_URL = "https://api.synthflow.ai/v2"
+# Synthflow uses regional endpoints. The global api.synthflow.ai does not route
+# to US-provisioned accounts — use the US regional endpoint.
+BASE_URL = "https://api.us.synthflow.ai/v2"
 CONFIG_DIR = Path.home() / ".synthflow-mcp"
 
 
@@ -94,7 +96,9 @@ class SynthflowClient:
     # --- Account ---
 
     def who_am_i(self):
-        return self.get("/account")
+        # /account does not exist in the Synthflow v2 API. Return analytics as the
+        # closest account-level signal available without extra params.
+        return self.get("/analytics")
 
     # --- Agents ---
 
@@ -104,21 +108,38 @@ class SynthflowClient:
     def get_agent(self, agent_id):
         return self.get(f"/assistants/{agent_id}")
 
-    def create_agent(self, name, system_prompt, voice_id="", language="en-US"):
-        body = {"name": name, "system_prompt": system_prompt, "language": language}
+    def create_agent(
+        self,
+        name,
+        system_prompt,
+        agent_type="outbound",
+        voice_id="",
+        language="en-US",
+        greeting_message="Hello, how can I help you?",
+        llm="gpt-4.1",
+    ):
+        agent_cfg = {
+            "prompt": system_prompt,
+            "greeting_message": greeting_message,
+            "llm": llm,
+            "language": language,
+        }
         if voice_id:
-            body["voice_id"] = voice_id
-        return self.post("/assistants", body=body)
+            agent_cfg["voice_id"] = voice_id
+        return self.post(
+            "/assistants", body={"type": agent_type, "name": name, "agent": agent_cfg}
+        )
 
     def update_agent(self, agent_id, name="", system_prompt="", voice_id=""):
+        # API requires PUT (not PATCH) for agent updates.
         body = {}
         if name:
             body["name"] = name
         if system_prompt:
-            body["system_prompt"] = system_prompt
+            body["agent"] = {"prompt": system_prompt}
         if voice_id:
-            body["voice_id"] = voice_id
-        return self.patch(f"/assistants/{agent_id}", body=body)
+            body.setdefault("agent", {})["voice_id"] = voice_id
+        return self._request("PUT", f"/assistants/{agent_id}", json_body=body)
 
     def delete_agent(self, agent_id):
         return self.delete(f"/assistants/{agent_id}")
@@ -126,26 +147,27 @@ class SynthflowClient:
     # --- Phone Numbers ---
 
     def list_phone_numbers(self, page=1, limit=25):
-        return self.get("/phone-numbers", params={"page": page, "limit": limit})
+        return self.get("/numbers", params={"page": page, "limit": limit})
 
     def get_phone_number(self, number_id):
-        return self.get(f"/phone-numbers/{number_id}")
+        return self.get(f"/numbers/{number_id}")
 
     def provision_phone_number(self, area_code="", country="US"):
         body = {"country": country}
         if area_code:
             body["area_code"] = area_code
-        return self.post("/phone-numbers", body=body)
+        return self.post("/numbers", body=body)
 
     def assign_agent_to_number(self, number_id, agent_id):
-        return self.patch(f"/phone-numbers/{number_id}", body={"agent_id": agent_id})
+        return self.patch(f"/numbers/{number_id}", body={"agent_id": agent_id})
 
     # --- Calls ---
 
     def list_calls(self, page=1, limit=25, agent_id=""):
-        params = {"page": page, "limit": limit}
+        # API requires model_id (the agent ID) as a mandatory query param.
+        params: dict = {"page": page, "limit": limit}
         if agent_id:
-            params["agent_id"] = agent_id
+            params["model_id"] = agent_id
         return self.get("/calls", params=params)
 
     def get_call(self, call_id):
@@ -154,8 +176,9 @@ class SynthflowClient:
     def get_call_transcript(self, call_id):
         return self.get(f"/calls/{call_id}/transcript")
 
-    def initiate_call(self, agent_id, to_number, from_number=""):
-        body = {"agent_id": agent_id, "to_number": to_number}
+    def initiate_call(self, agent_id, to_number, name="", from_number=""):
+        # API fields: model_id (agent), phone (recipient number), name (recipient name).
+        body = {"model_id": agent_id, "phone": to_number, "name": name}
         if from_number:
             body["from_number"] = from_number
         return self.post("/calls", body=body)

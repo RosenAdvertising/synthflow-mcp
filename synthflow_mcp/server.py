@@ -16,7 +16,7 @@ mcp = FastMCP(
 
 @mcp.tool()
 def who_am_i() -> str:
-    """Return current Synthflow account info."""
+    """Return Synthflow account analytics and usage summary."""
     return json.dumps(SynthflowClient().who_am_i(), indent=2)
 
 
@@ -37,12 +37,24 @@ def get_agent(agent_id: str) -> str:
 
 @mcp.tool()
 def create_agent(
-    name: str, system_prompt: str, voice_id: str = "", language: str = "en-US"
+    name: str,
+    system_prompt: str,
+    agent_type: str = "outbound",
+    voice_id: str = "",
+    language: str = "en-US",
+    greeting_message: str = "Hello, how can I help you?",
+    llm: str = "gpt-4.1",
 ) -> str:
-    """Create a new Synthflow voice agent."""
+    """Create a new Synthflow voice agent. agent_type: outbound | inbound | widget."""
     return json.dumps(
         SynthflowClient().create_agent(
-            name, system_prompt, voice_id=voice_id, language=language
+            name,
+            system_prompt,
+            agent_type=agent_type,
+            voice_id=voice_id,
+            language=language,
+            greeting_message=greeting_message,
+            llm=llm,
         ),
         indent=2,
     )
@@ -126,10 +138,14 @@ def get_call_transcript(call_id: str) -> str:
 
 
 @mcp.tool()
-def initiate_call(agent_id: str, to_number: str, from_number: str = "") -> str:
-    """Initiate an outbound call using a Synthflow agent."""
+def initiate_call(
+    agent_id: str, to_number: str, name: str = "", from_number: str = ""
+) -> str:
+    """Initiate an outbound call using a Synthflow agent. name is the recipient's name."""
     return json.dumps(
-        SynthflowClient().initiate_call(agent_id, to_number, from_number=from_number),
+        SynthflowClient().initiate_call(
+            agent_id, to_number, name=name, from_number=from_number
+        ),
         indent=2,
     )
 

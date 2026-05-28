@@ -1,0 +1,35 @@
+tools:
+  - name: who_am_i
+    read_write: read
+  - name: list_agents
+    read_write: read
+  - name: get_agent
+    read_write: read
+  - name: create_agent
+    read_write: write
+  - name: update_agent
+    read_write: write
+  - name: delete_agent
+    read_write: write
+  - name: list_phone_numbers
+    read_write: read
+  - name: get_phone_number
+    read_write: read
+  - name: provision_phone_number
+    read_write: write
+  - name: assign_agent_to_number
+    read_write: write
+  - name: list_calls
+    read_write: read
+  - name: get_call
+    read_write: read
+  - name: get_call_transcript
+    read_write: read
+  - name: initiate_call
+    read_write: write
+  - name: list_knowledge_bases
+    read_write: read
+  - name: create_knowledge_base
+    read_write: write
+  - name: get_analytics
+    read_write: read
