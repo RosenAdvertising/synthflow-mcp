@@ -67,7 +67,7 @@ Restart Claude Desktop after saving.
 
 API key is stored at `~/.synthflow-mcp/.env`:
 
-```
+```bash
 SYNTHFLOW_API_KEY=your_api_key_here
 ```
 
