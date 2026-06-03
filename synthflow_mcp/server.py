@@ -98,7 +98,7 @@ def get_phone_number(number_id: str) -> str:
 
 @mcp.tool()
 def provision_phone_number(area_code: str = "", country: str = "US") -> str:
-    """Provision a new phone number in Synthflow."""
+    """Create and provision a new phone number in Synthflow."""
     return json.dumps(
         SynthflowClient().provision_phone_number(area_code=area_code, country=country),
         indent=2,
@@ -107,7 +107,7 @@ def provision_phone_number(area_code: str = "", country: str = "US") -> str:
 
 @mcp.tool()
 def assign_agent_to_number(number_id: str, agent_id: str) -> str:
-    """Assign a Synthflow agent to a phone number."""
+    """Update a phone number to assign a specific Synthflow agent to it."""
     return json.dumps(
         SynthflowClient().assign_agent_to_number(number_id, agent_id), indent=2
     )
@@ -141,7 +141,7 @@ def get_call_transcript(call_id: str) -> str:
 def initiate_call(
     agent_id: str, to_number: str, name: str = "", from_number: str = ""
 ) -> str:
-    """Initiate an outbound call using a Synthflow agent. name is the recipient's name."""
+    """Create and initiate an outbound call using a Synthflow agent. name is the recipient's name."""
     return json.dumps(
         SynthflowClient().initiate_call(
             agent_id, to_number, name=name, from_number=from_number
@@ -154,9 +154,11 @@ def initiate_call(
 
 
 @mcp.tool()
-def list_knowledge_bases() -> str:
+def list_knowledge_bases(page: int = 1, limit: int = 25) -> str:
     """List all knowledge bases in Synthflow."""
-    return json.dumps(SynthflowClient().list_knowledge_bases(), indent=2)
+    return json.dumps(
+        SynthflowClient().list_knowledge_bases(page=page, limit=limit), indent=2
+    )
 
 
 @mcp.tool()

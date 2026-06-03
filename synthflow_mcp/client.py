@@ -185,8 +185,8 @@ class SynthflowClient:
 
     # --- Knowledge Bases ---
 
-    def list_knowledge_bases(self):
-        return self.get("/knowledge-bases")
+    def list_knowledge_bases(self, page=1, limit=25):
+        return self.get("/knowledge-bases", params={"page": page, "limit": limit})
 
     def create_knowledge_base(self, name, content):
         return self.post("/knowledge-bases", body={"name": name, "content": content})
