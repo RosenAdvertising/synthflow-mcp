@@ -16,7 +16,11 @@ def main():
         print("Error: API key cannot be empty.")
         sys.exit(1)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_DIR.chmod(0o700)
     env_file = CONFIG_DIR / ".env"
+    # Credentials are stored in a chmod-0600 file. A pluggable OS-keyring backend
+    # (macOS Keychain / Windows Credential Manager / Linux Secret Service) is being
+    # evaluated as optional hardening; see the "pluggable OS-keyring" MCP task.
     with open(env_file, "w") as f:
         f.write(f"SYNTHFLOW_API_KEY={api_key}\n")
     os.chmod(env_file, 0o600)
