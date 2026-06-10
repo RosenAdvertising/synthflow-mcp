@@ -3,26 +3,15 @@ import os
 import sys
 import time
 import requests
-from pathlib import Path
+
+from synthflow_mcp import credentials
 
 # Synthflow uses regional endpoints. The global api.synthflow.ai does not route
 # to US-provisioned accounts — use the US regional endpoint.
 BASE_URL = "https://api.us.synthflow.ai/v2"
-CONFIG_DIR = Path.home() / ".synthflow-mcp"
 
-
-def _load_env():
-    env_file = CONFIG_DIR / ".env"
-    if env_file.exists():
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, val = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), val.strip())
-
-
-_load_env()
+# Resolve credentials through the pluggable store (OS keyring -> .env file).
+credentials.load_into_environ(["SYNTHFLOW_API_KEY"])
 
 
 def _retry_after_seconds(resp, default=10):

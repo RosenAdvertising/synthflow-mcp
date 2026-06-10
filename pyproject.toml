@@ -7,7 +7,12 @@ name = "synthflow-mcp"
 version = "0.1.0"
 description = "MCP server for Synthflow Voice AI — agent management, calls, transcripts, phone numbers"
 requires-python = ">=3.10"
-dependencies = ["mcp>=1.0.0", "requests>=2.31.0", "python-dotenv>=1.0.0"]
+dependencies = [
+    "mcp>=1.0.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "keyring>=24.0.0",
+]
 
 [project.scripts]
 synthflow-mcp = "synthflow_mcp.server:main"
