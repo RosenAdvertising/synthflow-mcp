@@ -6,6 +6,11 @@
 [![MCP](https://img.shields.io/badge/MCP-compatible-7C3AED.svg)](https://modelcontextprotocol.io)
 [![Synthflow](https://img.shields.io/badge/Synthflow-Voice%20AI-FF6B35.svg)](https://synthflow.ai)
 
+<!-- prettier-ignore -->
+> [!IMPORTANT]
+> **Built to spec — not yet verified against a live Synthflow account.**
+> This server was built from Synthflow's public API documentation and passes its full offline test suite, but we don't currently have Synthflow API access to verify behavior against the live API. Endpoint paths, parameters, and response shapes follow the documented spec. If you hit a discrepancy, please open an issue.
+
 MCP server for [Synthflow Voice AI](https://synthflow.ai). Manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics directly from Claude Desktop or any MCP-compatible client.
 
 ## Requirements
