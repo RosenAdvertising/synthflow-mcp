@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
+import logging
 import sys
+
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -12,10 +16,17 @@ def main():
         if isinstance(info, dict):
             name = info.get("name") or info.get("account_name") or info.get("email", "")
             if name:
-                print(f"Account: {name}")
+                print("Account identity verified.")
         print("synthflow-mcp is ready.")
-    except Exception as e:
-        print(f"Error: {e}")
+    except Exception:
+        logger.warning(
+            "Synthflow verification rejected",
+            extra={
+                "event": "synthflow_verification_rejected",
+                "reason": "connection_check_failed",
+            },
+        )
+        print("Error: unable to verify the Synthflow connection.")
         print("Run synthflow-mcp-setup to configure your API key.")
         sys.exit(1)
 

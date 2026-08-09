@@ -2,10 +2,25 @@
 """Synthflow MCP Server — voice agent management, calls, transcripts, phone numbers."""
 
 import json
-from mcp.server.fastmcp import FastMCP
+from typing import Annotated
+
+from mcp.server import MCPServer
+from pydantic import Field
+
 from .client import SynthflowClient
 
-mcp = FastMCP(
+ListLimit = Annotated[
+    int,
+    Field(
+        ge=1,
+        le=200,
+        description="Maximum records returned by this tool call.",
+    ),
+]
+PageNumber = Annotated[int, Field(ge=1, description="One-based API page number.")]
+
+
+mcp = MCPServer(
     "synthflow-mcp",
     instructions="Full access to Synthflow Voice AI: manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics.",
 )
@@ -24,8 +39,8 @@ def who_am_i() -> str:
 
 
 @mcp.tool()
-def list_agents(page: int = 1, limit: int = 25) -> str:
-    """List all Synthflow voice agents."""
+def list_agents(page: PageNumber = 1, limit: ListLimit = 25) -> str:
+    """List at most limit Synthflow voice agents from one API page."""
     return json.dumps(SynthflowClient().list_agents(page=page, limit=limit), indent=2)
 
 
@@ -83,8 +98,8 @@ def delete_agent(agent_id: str) -> str:
 
 
 @mcp.tool()
-def list_phone_numbers(page: int = 1, limit: int = 25) -> str:
-    """List all provisioned Synthflow phone numbers."""
+def list_phone_numbers(page: PageNumber = 1, limit: ListLimit = 25) -> str:
+    """List at most limit provisioned phone numbers from one API page."""
     return json.dumps(
         SynthflowClient().list_phone_numbers(page=page, limit=limit), indent=2
     )
@@ -117,8 +132,8 @@ def assign_agent_to_number(number_id: str, agent_id: str) -> str:
 
 
 @mcp.tool()
-def list_calls(page: int = 1, limit: int = 25, agent_id: str = "") -> str:
-    """List calls, optionally filtered by agent ID."""
+def list_calls(page: PageNumber = 1, limit: ListLimit = 25, agent_id: str = "") -> str:
+    """List at most limit calls from one API page, optionally by agent ID."""
     return json.dumps(
         SynthflowClient().list_calls(page=page, limit=limit, agent_id=agent_id),
         indent=2,
@@ -154,8 +169,8 @@ def initiate_call(
 
 
 @mcp.tool()
-def list_knowledge_bases(page: int = 1, limit: int = 25) -> str:
-    """List all knowledge bases in Synthflow."""
+def list_knowledge_bases(page: PageNumber = 1, limit: ListLimit = 25) -> str:
+    """List at most limit knowledge bases from one API page."""
     return json.dumps(
         SynthflowClient().list_knowledge_bases(page=page, limit=limit), indent=2
     )
