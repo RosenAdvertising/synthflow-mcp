@@ -1,24 +1,9 @@
 # MCP specification delta: 2025-11-25 to 2026-07-28
 
-> Integration note (2026-09-28): The SDK 2.0.0 target below describes the
-> original spec branch. The `v2-2026-09-28` integration branch retains main's
-> `mcp>=1.28.1,<2` requirement; its resolved SDK is 1.30.0, so the modern
-> protocol migration below has not been validated on that branch.
-
-Research date: 2026-08-09. Sources are limited to the official MCP
-specification and Python SDK documentation.
-
-## Current target and migration release
-
-This repository currently targets MCP `2025-11-25`:
-
-- `pyproject.toml` declares `mcp>=1.28.1,<2`, and `uv.lock` resolves MCP Python
-  SDK 1.28.1.
-- `synthflow_mcp/server.py` constructs v1 `FastMCP` without overriding protocol
-  negotiation, so the SDK default is authoritative.
-- The server calls `mcp.run()` with no transport argument and therefore ships
-  stdio only. It has no HTTP or browser application.
-- There were no committed protocol tests or spec guard before this migration.
+This note maps the changes from MCP `2025-11-25` to `2026-07-28` for this
+server. `pyproject.toml` requires `mcp>=2.2,<3`; `uv.lock` resolves `mcp` and
+`mcp-types` to 2.2.0. The server uses `MCPServer` and calls `mcp.run()` to ship
+stdio. Protocol tests exercise the SDK's in-process HTTP app as well.
 
 The official changelog says `2026-07-28` follows `2025-11-25`
 ([spec changelog](https://modelcontextprotocol.io/specification/2026-07-28/changelog)).
@@ -27,7 +12,8 @@ client support, renames `FastMCP` to `MCPServer`, and moves transport settings
 to `run()` or the app builders
 ([SDK v2 overview](https://py.sdk.modelcontextprotocol.io/whats-new/),
 [v1-to-v2 migration guide](https://py.sdk.modelcontextprotocol.io/migration/)).
-This migration pins the first stable v2 release, `mcp==2.0.0`, exactly.
+The migration uses SDK 2.2.0 in the lock. Reproducible local check commands
+and scope notes are in [SPEC-MIGRATION-REPORT.md](SPEC-MIGRATION-REPORT.md).
 
 Verdicts below mean:
 
