@@ -16,6 +16,7 @@ MCP server for [Synthflow Voice AI](https://synthflow.ai). Manage agents, phone 
 ## Requirements
 
 - Python 3.10+
+- Python MCP SDK >=2.2,<3; the wire protocol revision is 2026-07-28
 - A Synthflow account with an API key (Settings → API)
 
 ## Install

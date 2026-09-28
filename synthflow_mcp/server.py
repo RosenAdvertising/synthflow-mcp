@@ -4,7 +4,7 @@
 import json
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import Field
 
 from .client import SynthflowClient
@@ -20,7 +20,7 @@ ListLimit = Annotated[
 PageNumber = Annotated[int, Field(ge=1, description="One-based API page number.")]
 
 
-mcp = FastMCP(
+mcp = MCPServer(
     "synthflow-mcp",
     instructions="Full access to Synthflow Voice AI: manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics.",
 )
