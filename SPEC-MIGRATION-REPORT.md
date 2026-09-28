@@ -31,8 +31,8 @@ protocol transport.
 ```bash
 SYNTHFLOW_MCP_USE_KEYRING=0 SYNTHFLOW_API_KEY=offline-test-placeholder .venv/bin/python -m pytest -q
 SYNTHFLOW_MCP_USE_KEYRING=0 SYNTHFLOW_API_KEY=offline-test-placeholder .venv/bin/python tests/spec_check.py --mcp-only
-UV_CACHE_DIR=/path/to/uv-cache UV_PYTHON_INSTALL_DIR=/path/to/python-cache uv run --offline --no-project --with ruff==0.8.5 ruff check synthflow_mcp/client.py synthflow_mcp/server.py synthflow_mcp/setup/verify.py tests/spec_check.py tests/test_spec_2026_07_28.py
-UV_CACHE_DIR=/path/to/uv-cache UV_PYTHON_INSTALL_DIR=/path/to/python-cache uv lock --offline --check
+uv run --offline --no-project --with ruff==0.8.5 ruff check synthflow_mcp/client.py synthflow_mcp/server.py synthflow_mcp/setup/verify.py tests/spec_check.py tests/test_spec_2026_07_28.py
+uv lock --offline --check
 ```
 
 These checks cover local protocol behavior and mocked vendor calls. Live
