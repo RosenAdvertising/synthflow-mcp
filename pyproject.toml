@@ -20,6 +20,7 @@ dependencies = [
 dev = [
     "httpx>=0.28.1,<1",
     "pytest>=8.4,<10",
+    "pytest-cov>=7.0.0,<8",
 ]
 
 [project.scripts]
@@ -31,6 +32,8 @@ synthflow-mcp-verify = "synthflow_mcp.setup.verify:main"
 include = ["."]
 exclude = ["**/node_modules", "**/__pycache__", ".venv", "venv", "dist", "build"]
 typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
 reportMissingImports = "warning"
 reportMissingTypeStubs = false
 
