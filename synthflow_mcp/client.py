@@ -33,7 +33,7 @@ class RateLimitError(RuntimeError):
     def __init__(self, retry_after: int):
         self.retry_after = retry_after
         super().__init__(
-            f"Synthflow rate limit reached. Retry after {retry_after} seconds."
+            f"Synthflow rate limit reached (HTTP 429). Retry after {retry_after} seconds."
         )
 
 
@@ -54,6 +54,32 @@ _SAFE_HTTP_REASONS = {
     503: "the service is temporarily unavailable",
     504: "the service timed out",
 }
+
+_SAFE_VENDOR_REASONS = {
+    "invalid_request": "invalid request",
+    "validation_error": "request validation failed",
+    "invalid_parameter": "invalid parameter",
+    "service_unavailable": "the service is temporarily unavailable",
+}
+
+
+def _vendor_reason(response):
+    fallback = _SAFE_HTTP_REASONS.get(
+        response.status_code, "the service rejected the request"
+    )
+    try:
+        payload = response.json()
+    except ValueError:
+        return fallback
+    if isinstance(payload, dict):
+        for source in (payload, payload.get("error")):
+            if isinstance(source, dict):
+                for key in ("code", "error_code", "error", "message", "detail"):
+                    value = source.get(key)
+                    if isinstance(value, str) and value.lower() in _SAFE_VENDOR_REASONS:
+                        return _SAFE_VENDOR_REASONS[value.lower()]
+    return fallback
+
 
 # Resolve credentials through the pluggable store (OS keyring -> .env file).
 credentials.load_into_environ(["SYNTHFLOW_API_KEY"])
@@ -78,7 +104,9 @@ def _json_response(resp):
                 "status_code": resp.status_code,
             },
         )
-        raise RuntimeError(f"Synthflow API returned non-JSON ({resp.status_code})")
+        raise VendorHTTPError(
+            resp.status_code, "the service returned invalid JSON"
+        ) from None
 
 
 class SynthflowClient:
@@ -157,9 +185,7 @@ class SynthflowClient:
             )
             if resp.status_code == 404:
                 raise NotFoundError("Synthflow item was not found (HTTP 404).")
-            reason = _SAFE_HTTP_REASONS.get(
-                resp.status_code, "the service rejected the request"
-            )
+            reason = _vendor_reason(resp)
             raise VendorHTTPError(resp.status_code, reason)
         return _json_response(resp)
 

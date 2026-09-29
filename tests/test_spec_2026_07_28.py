@@ -476,12 +476,12 @@ def test_tool_errors_are_actionable_through_in_memory_sdk(monkeypatch, caplog) -
         (
             429,
             {"Retry-After": "999999999999999999999"},
-            "Synthflow rate limit reached. Retry after 60 seconds.",
+            "Synthflow rate limit reached (HTTP 429). Retry after 60 seconds.",
         ),
         (
             429,
             {"Retry-After": "https://secret.example/token?name=Private Person"},
-            "Synthflow rate limit reached. Retry after 10 seconds.",
+            "Synthflow rate limit reached (HTTP 429). Retry after 10 seconds.",
         ),
         (404, {}, "Synthflow item was not found (HTTP 404)."),
         (500, {}, "Synthflow API error 500: the service encountered an error"),
@@ -573,3 +573,65 @@ def _tool_text(result: Any) -> str:
 async def _tool_result(name: str, arguments: dict[str, Any]):
     async with Client(server.mcp, cache=None) as client:
         return await client.call_tool(name, arguments)
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "expected"),
+    [
+        ("get_agent", {}, "Invalid argument 'agent_id': expected required string."),
+        (
+            "get_call",
+            {"call_id": {"private@example.invalid": "secret"}},
+            "Invalid argument 'call_id': expected string.",
+        ),
+        (
+            "list_agents",
+            {"page": "private@example.invalid"},
+            "Invalid argument 'page': expected integer of at least 1.",
+        ),
+    ],
+)
+def test_validation_shapes_come_from_registered_schema(tool, arguments, expected):
+    result = asyncio.run(_tool_result(tool, arguments))
+    assert result.is_error
+    assert _tool_text(result) == expected
+
+
+def test_recognized_vendor_code_excludes_private_response_data(monkeypatch, caplog):
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "unused")
+    instance = client_module.SynthflowClient()
+    response = client_module.requests.Response()
+    response.status_code = 400
+    response._content = b'{"error":{"code":"invalid_request","message":"private@example.invalid token=FAKE"}}'
+    monkeypatch.setattr(instance.session, "request", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(server, "SynthflowClient", lambda: instance)
+    result = asyncio.run(_tool_result("who_am_i", {}))
+    assert result.is_error
+    assert _tool_text(result) == "Synthflow API error 400: invalid request"
+    assert "private@example.invalid" not in caplog.text
+    assert "token=FAKE" not in caplog.text
+
+
+def test_unexpected_pydantic_error_remains_masked(monkeypatch, caplog):
+    from pydantic import ValidationError
+
+    failure = ValidationError.from_exception_data(
+        "Vendor",
+        [
+            {
+                "type": "string_type",
+                "loc": ("private@example.invalid",),
+                "input": "secret",
+            }
+        ],
+    )
+
+    def fail():
+        raise failure
+
+    monkeypatch.setattr(server, "SynthflowClient", fail)
+    caplog.set_level(logging.WARNING)
+    result = asyncio.run(_tool_result("who_am_i", {}))
+    assert result.is_error
+    assert _tool_text(result) == "Error executing tool who_am_i"
+    assert "private@example.invalid" not in caplog.text

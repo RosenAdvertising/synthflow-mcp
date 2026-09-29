@@ -52,7 +52,7 @@ class ActionableMCPServer(MCPServer):
             elif isinstance(cause, client_errors.AuthenticationError):
                 message = str(cause)
             elif isinstance(cause, client_errors.RateLimitError):
-                message = f"Synthflow rate limit reached. Retry after {cause.retry_after} seconds."
+                message = f"Synthflow rate limit reached (HTTP 429). Retry after {cause.retry_after} seconds."
             elif isinstance(cause, client_errors.NotFoundError):
                 message = str(cause)
             elif isinstance(cause, client_errors.VendorHTTPError):
@@ -65,21 +65,34 @@ class ActionableMCPServer(MCPServer):
             )
         except ToolError as exc:
             if isinstance(exc.__cause__, ValidationError):
-                fields = sorted(
-                    {
-                        str(part)
-                        for error in exc.__cause__.errors()
-                        for part in error["loc"]
-                    }
+                registered = self._tool_manager.get_tool(name)
+                properties = (
+                    registered.parameters.get("properties", {}) if registered else {}
                 )
-                if fields:
-                    field = fields[0]
+                details = []
+                for issue in exc.__cause__.errors(
+                    include_input=False, include_url=False
+                ):
+                    field = (issue.get("loc") or ("argument",))[0]
+                    if not isinstance(field, str) or field not in properties:
+                        field = "argument"
                     shape = _ARGUMENT_SHAPES.get(
-                        (name, field), "the required input shape"
+                        (name, field),
+                        properties.get(field, {}).get(
+                            "type", "the registered input shape"
+                        ),
                     )
-                    message = f"Invalid argument '{field}': expected {shape}."
-                else:
-                    message = "Invalid tool arguments. Check the required input shape."
+                    if not isinstance(shape, str):
+                        shape = "the registered input shape"
+                    if issue["type"] == "missing":
+                        shape = "required " + shape
+                    detail = f"Invalid argument '{field}': expected {shape}."
+                    if detail not in details:
+                        details.append(detail)
+                message = (
+                    " ".join(details)
+                    or "Invalid tool arguments. Check the registered input shape."
+                )
                 logger.info("Tool call rejected: invalid arguments (tool=%s)", name)
                 return CallToolResult(
                     content=[TextContent(type="text", text=message)], is_error=True
