@@ -2,12 +2,98 @@
 """Synthflow MCP Server — voice agent management, calls, transcripts, phone numbers."""
 
 import json
+import logging
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+from mcp.types import CallToolResult, TextContent
+from pydantic import ValidationError
 from pydantic import Field
 
 from .client import SynthflowClient
+from . import client as client_errors
+
+logger = logging.getLogger(__name__)
+
+
+_ARGUMENT_SHAPES = {
+    (name, "page"): "integer of at least 1"
+    for name in (
+        "list_agents",
+        "list_phone_numbers",
+        "list_calls",
+        "list_knowledge_bases",
+    )
+}
+_ARGUMENT_SHAPES.update(
+    {
+        (name, "limit"): "integer between 1 and 200"
+        for name in (
+            "list_agents",
+            "list_phone_numbers",
+            "list_calls",
+            "list_knowledge_bases",
+        )
+    }
+)
+
+
+class ActionableMCPServer(MCPServer):
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except UnexpectedToolError as exc:
+            cause = exc.__cause__
+            while cause is not None and isinstance(cause, (UnexpectedToolError,)):
+                cause = cause.__cause__
+            if isinstance(cause, client_errors.MissingCredentialsError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.AuthenticationError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.RateLimitError):
+                message = f"Synthflow rate limit reached. Retry after {cause.retry_after} seconds."
+            elif isinstance(cause, client_errors.NotFoundError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.VendorHTTPError):
+                message = str(cause)
+            else:
+                logger.warning("Tool call failed: unexpected error (tool=%s)", name)
+                message = f"Error executing tool {name}"
+            return CallToolResult(
+                content=[TextContent(type="text", text=message)], is_error=True
+            )
+        except ToolError as exc:
+            if isinstance(exc.__cause__, ValidationError):
+                fields = sorted(
+                    {
+                        str(part)
+                        for error in exc.__cause__.errors()
+                        for part in error["loc"]
+                    }
+                )
+                if fields:
+                    field = fields[0]
+                    shape = _ARGUMENT_SHAPES.get(
+                        (name, field), "the required input shape"
+                    )
+                    message = f"Invalid argument '{field}': expected {shape}."
+                else:
+                    message = "Invalid tool arguments. Check the required input shape."
+                logger.info("Tool call rejected: invalid arguments (tool=%s)", name)
+                return CallToolResult(
+                    content=[TextContent(type="text", text=message)], is_error=True
+                )
+            registered_names = {tool.name for tool in await self.list_tools()}
+            safe_name = name if name in registered_names else "unknown"
+            logger.warning("Tool call failed: anticipated error (tool=%s)", safe_name)
+            return CallToolResult(
+                content=[
+                    TextContent(type="text", text=f"Error executing tool {safe_name}")
+                ],
+                is_error=True,
+            )
+
 
 ListLimit = Annotated[
     int,
@@ -20,7 +106,7 @@ ListLimit = Annotated[
 PageNumber = Annotated[int, Field(ge=1, description="One-based API page number.")]
 
 
-mcp = MCPServer(
+mcp = ActionableMCPServer(
     "synthflow-mcp",
     instructions="Full access to Synthflow Voice AI: manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics.",
 )

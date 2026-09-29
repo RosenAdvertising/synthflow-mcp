@@ -13,6 +13,48 @@ from synthflow_mcp import credentials
 BASE_URL = "https://api.us.synthflow.ai/v2"
 logger = logging.getLogger(__name__)
 
+
+class MissingCredentialsError(RuntimeError):
+    pass
+
+
+class AuthenticationError(RuntimeError):
+    pass
+
+
+class VendorHTTPError(RuntimeError):
+    def __init__(self, status: int, reason: str):
+        self.status = status
+        self.reason = reason
+        super().__init__(f"Synthflow API error {status}: {reason}")
+
+
+class RateLimitError(RuntimeError):
+    def __init__(self, retry_after: int):
+        self.retry_after = retry_after
+        super().__init__(
+            f"Synthflow rate limit reached. Retry after {retry_after} seconds."
+        )
+
+
+class NotFoundError(RuntimeError):
+    pass
+
+
+_SAFE_HTTP_REASONS = {
+    400: "the request was rejected",
+    401: "authentication was rejected",
+    403: "access was denied",
+    404: "the requested item was not found",
+    409: "the request conflicts with current state",
+    422: "the request was invalid",
+    429: "the service is rate limiting requests",
+    500: "the service encountered an error",
+    502: "the service is temporarily unavailable",
+    503: "the service is temporarily unavailable",
+    504: "the service timed out",
+}
+
 # Resolve credentials through the pluggable store (OS keyring -> .env file).
 credentials.load_into_environ(["SYNTHFLOW_API_KEY"])
 
@@ -47,7 +89,9 @@ class SynthflowClient:
                 "Synthflow credential rejected",
                 extra={"event": "synthflow_credentials_missing"},
             )
-            raise RuntimeError("No Synthflow API key found. Run: synthflow-mcp-setup")
+            raise MissingCredentialsError(
+                "No Synthflow API key found (SYNTHFLOW_API_KEY). Run: synthflow-mcp-setup"
+            )
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -69,11 +113,15 @@ class SynthflowClient:
                     "status_code": 401,
                 },
             )
-            raise RuntimeError(
-                "Synthflow API key invalid or expired. Run: synthflow-mcp-setup"
+            raise AuthenticationError(
+                "Synthflow API key invalid or expired. Re-authorize with: synthflow-mcp-setup"
+            )
+        if resp.status_code == 403:
+            raise AuthenticationError(
+                "Synthflow authorization was rejected. Re-authorize with: synthflow-mcp-setup"
             )
         if resp.status_code == 429 and _rate_retries < 3:
-            wait = _retry_after_seconds(resp)
+            wait = min(max(_retry_after_seconds(resp, default=10), 1), 60)
             logger.warning(
                 "Synthflow request deferred",
                 extra={
@@ -92,6 +140,10 @@ class SynthflowClient:
                 json_body=json_body,
                 _rate_retries=_rate_retries + 1,
             )
+        if resp.status_code == 429:
+            raise RateLimitError(
+                min(max(_retry_after_seconds(resp, default=10), 1), 60)
+            )
         if resp.status_code == 204:
             return {"success": True}
         if not resp.ok:
@@ -103,7 +155,12 @@ class SynthflowClient:
                     "status_code": resp.status_code,
                 },
             )
-            raise RuntimeError(f"Synthflow API error {resp.status_code}")
+            if resp.status_code == 404:
+                raise NotFoundError("Synthflow item was not found (HTTP 404).")
+            reason = _SAFE_HTTP_REASONS.get(
+                resp.status_code, "the service rejected the request"
+            )
+            raise VendorHTTPError(resp.status_code, reason)
         return _json_response(resp)
 
     def get(self, path, params=None):

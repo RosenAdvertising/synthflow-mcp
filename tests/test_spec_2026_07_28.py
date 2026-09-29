@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 import pytest
 from mcp import Client
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import LATEST_PROTOCOL_VERSION
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
@@ -434,3 +435,141 @@ def test_vendor_errors_and_verification_output_do_not_echo_pii(
     assert "unit-test-secret" not in caplog.text
     assert "person@example.test" not in caplog.text
     assert "Private Person" not in caplog.text
+
+
+def test_tool_errors_are_actionable_through_in_memory_sdk(monkeypatch, caplog) -> None:
+    async def call(name: str, arguments: dict[str, Any] | None = None):
+        async with Client(server.mcp, cache=None) as client:
+            return await client.call_tool(name, arguments or {})
+
+    monkeypatch.delenv("SYNTHFLOW_API_KEY", raising=False)
+    missing = asyncio.run(call("who_am_i"))
+    assert missing.is_error is True
+    assert _tool_text(missing) == (
+        "No Synthflow API key found (SYNTHFLOW_API_KEY). Run: synthflow-mcp-setup"
+    )
+
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "dummy-test-token")
+    client = client_module.SynthflowClient()
+    monkeypatch.setattr(
+        client.session,
+        "request",
+        lambda *args, **kwargs: httpx.Response(401),
+    )
+    monkeypatch.setattr(server, "SynthflowClient", lambda: client)
+    auth = asyncio.run(call("who_am_i"))
+    assert auth.is_error is True
+    assert _tool_text(auth) == (
+        "Synthflow API key invalid or expired. Re-authorize with: synthflow-mcp-setup"
+    )
+
+    forbidden = client_module.requests.Response()
+    forbidden.status_code = 403
+    monkeypatch.setattr(client.session, "request", lambda *a, **k: forbidden)
+    denied = asyncio.run(call("who_am_i"))
+    assert denied.is_error is True
+    assert _tool_text(denied) == (
+        "Synthflow authorization was rejected. Re-authorize with: synthflow-mcp-setup"
+    )
+
+    cases = [
+        (
+            429,
+            {"Retry-After": "999999999999999999999"},
+            "Synthflow rate limit reached. Retry after 60 seconds.",
+        ),
+        (
+            429,
+            {"Retry-After": "https://secret.example/token?name=Private Person"},
+            "Synthflow rate limit reached. Retry after 10 seconds.",
+        ),
+        (404, {}, "Synthflow item was not found (HTTP 404)."),
+        (500, {}, "Synthflow API error 500: the service encountered an error"),
+        (418, {}, "Synthflow API error 418: the service rejected the request"),
+    ]
+    monkeypatch.setattr(client_module.time, "sleep", lambda _seconds: None)
+    for status, headers, expected in cases:
+        response = client_module.requests.Response()
+        response.status_code = status
+        response.headers.update(headers)
+        response._content = (
+            b'{"token":"dummy-test-token","name":"Private Person",'
+            b'"email":"person@example.test","url":"https://secret.example/key"}'
+        )
+        monkeypatch.setattr(client.session, "request", lambda *a, _r=response, **k: _r)
+        result = asyncio.run(call("who_am_i"))
+        assert result.is_error is True
+        assert _tool_text(result) == expected
+        for private in (
+            "dummy-test-token",
+            "Private Person",
+            "person@example.test",
+            "secret.example",
+        ):
+            assert private not in _tool_text(result)
+
+    caplog.set_level(logging.WARNING, logger=server.__name__)
+    for error_type in (RuntimeError, ValueError, TypeError):
+        monkeypatch.setattr(
+            server,
+            "SynthflowClient",
+            lambda error_type=error_type: type(
+                "FailingClient",
+                (),
+                {
+                    "who_am_i": lambda self: (_ for _ in ()).throw(
+                        error_type("private token https://user:pass@example.test/ Bob")
+                    )
+                },
+            )(),
+        )
+        unknown = asyncio.run(call("who_am_i"))
+        assert unknown.is_error is True
+        assert _tool_text(unknown) == "Error executing tool who_am_i"
+    assert "private token" not in caplog.text
+    assert "example.test" not in caplog.text
+    assert "Bob" not in caplog.text
+
+    class ToolErrorClient:
+        def who_am_i(self):
+            raise ToolError("leaked token and PII")
+
+    monkeypatch.setattr(server, "SynthflowClient", ToolErrorClient)
+    anticipated_unknown = asyncio.run(call("who_am_i"))
+    assert anticipated_unknown.is_error is True
+    assert _tool_text(anticipated_unknown) == "Error executing tool who_am_i"
+    assert "leaked token and PII" not in caplog.text
+
+
+def test_validation_error_through_sdk_uses_field_and_expected_shape(
+    monkeypatch,
+) -> None:
+    called = False
+
+    class StubSynthflowClient:
+        def list_agents(self, **kwargs):
+            nonlocal called
+            called = True
+            return {}
+
+    monkeypatch.setattr(server, "SynthflowClient", StubSynthflowClient)
+    result = asyncio.run(
+        _tool_result("list_agents", {"limit": 999, "agent_id": "private-value"})
+    )
+    assert result.is_error is True
+    assert (
+        _tool_text(result)
+        == "Invalid argument 'limit': expected integer between 1 and 200."
+    )
+    assert "999" not in _tool_text(result)
+    assert "private-value" not in _tool_text(result)
+    assert called is False
+
+
+def _tool_text(result: Any) -> str:
+    return str(result.content[0].model_dump()["text"])
+
+
+async def _tool_result(name: str, arguments: dict[str, Any]):
+    async with Client(server.mcp, cache=None) as client:
+        return await client.call_tool(name, arguments)
