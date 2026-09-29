@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 import sys
+from getpass import getpass
 
 from synthflow_mcp import credentials
 
@@ -9,7 +10,11 @@ def main():
     print("Synthflow MCP Setup")
     print("Get your API key at: https://app.synthflow.ai → Settings → API")
     print()
-    api_key = input("Paste your Synthflow API key: ").strip()
+    try:
+        api_key = getpass("Paste your Synthflow API key: ").strip()
+    except EOFError:
+        print("Error: no API key was provided. Run synthflow-mcp-setup again.")
+        sys.exit(1)
     if not api_key:
         print("Error: API key cannot be empty.")
         sys.exit(1)

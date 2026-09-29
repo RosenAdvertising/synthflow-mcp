@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import pytest
+from requests.adapters import BaseAdapter
 from mcp import Client
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import LATEST_PROTOCOL_VERSION
@@ -394,7 +395,7 @@ def test_rejection_paths_log_only_pii_free_reasons(monkeypatch, caplog) -> None:
         text='{"email":"person@example.test","name":"Private Person"}',
     )
     monkeypatch.setattr(client.session, "request", lambda *args, **kwargs: response)
-    with pytest.raises(RuntimeError, match="invalid or expired"):
+    with pytest.raises(RuntimeError, match="Synthflow authentication failed"):
         client.get("/assistants")
 
     assert any(
@@ -446,7 +447,8 @@ def test_tool_errors_are_actionable_through_in_memory_sdk(monkeypatch, caplog) -
     missing = asyncio.run(call("who_am_i"))
     assert missing.is_error is True
     assert _tool_text(missing) == (
-        "No Synthflow API key found (SYNTHFLOW_API_KEY). Run: synthflow-mcp-setup"
+        "No Synthflow API key found (SYNTHFLOW_API_KEY). Run "
+        "synthflow-mcp-setup, then restart the MCP server."
     )
 
     monkeypatch.setenv("SYNTHFLOW_API_KEY", "dummy-test-token")
@@ -460,7 +462,8 @@ def test_tool_errors_are_actionable_through_in_memory_sdk(monkeypatch, caplog) -
     auth = asyncio.run(call("who_am_i"))
     assert auth.is_error is True
     assert _tool_text(auth) == (
-        "Synthflow API key invalid or expired. Re-authorize with: synthflow-mcp-setup"
+        "Synthflow authentication failed. Check the API key and run "
+        "synthflow-mcp-setup to replace it; restart the MCP server after setup."
     )
 
     forbidden = client_module.requests.Response()
@@ -469,14 +472,16 @@ def test_tool_errors_are_actionable_through_in_memory_sdk(monkeypatch, caplog) -
     denied = asyncio.run(call("who_am_i"))
     assert denied.is_error is True
     assert _tool_text(denied) == (
-        "Synthflow authorization was rejected. Re-authorize with: synthflow-mcp-setup"
+        "Synthflow access denied: the connected account lacks permission for "
+        "this action (or the authorization expired; re-run "
+        "synthflow-mcp-setup if so)."
     )
 
     cases = [
         (
             429,
             {"Retry-After": "999999999999999999999"},
-            "Synthflow rate limit reached (HTTP 429). Retry after 60 seconds.",
+            "Synthflow rate limit reached (HTTP 429). Retry after 999999999999999999999 seconds.",
         ),
         (
             429,
@@ -635,3 +640,227 @@ def test_unexpected_pydantic_error_remains_masked(monkeypatch, caplog):
     assert result.is_error
     assert _tool_text(result) == "Error executing tool who_am_i"
     assert "private@example.invalid" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "kind", "expected"),
+    [
+        (
+            "who_am_i",
+            {},
+            "timeout",
+            "Synthflow request timed out. Retry the read when the connection is available.",
+        ),
+        (
+            "who_am_i",
+            {},
+            "connection",
+            "Synthflow connection failed. Retry the read when the connection is available.",
+        ),
+        (
+            "initiate_call",
+            {"agent_id": "a", "to_number": "+15555550123"},
+            "timeout",
+            "Synthflow request timed out. The outcome is unknown. Check whether the operation completed before retrying.",
+        ),
+        (
+            "initiate_call",
+            {"agent_id": "a", "to_number": "+15555550123"},
+            "connection",
+            "Synthflow connection failed. The outcome is unknown. Check whether the operation completed before retrying.",
+        ),
+    ],
+)
+def test_transport_failures_are_safe_and_method_aware_through_dispatch(
+    monkeypatch, tool, arguments, kind, expected
+):
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "fake-secret")
+    instance = client_module.SynthflowClient()
+    exception = (
+        client_module.requests.Timeout("private URL and key")
+        if kind == "timeout"
+        else client_module.requests.ConnectionError("private URL and key")
+    )
+
+    def fail(*_args, **_kwargs):
+        raise exception
+
+    monkeypatch.setattr(instance.session, "request", fail)
+    monkeypatch.setattr(server, "SynthflowClient", lambda: instance)
+    result = asyncio.run(_tool_result(tool, arguments))
+    assert result.is_error is True
+    assert _tool_text(result) == expected
+    assert "private URL" not in _tool_text(result)
+
+
+def test_request_timeout_and_retry_after_total_budget(monkeypatch):
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "fake-secret")
+    client = client_module.SynthflowClient()
+    calls: list[dict[str, Any]] = []
+    waits: list[int] = []
+    responses = []
+    for hint in ("40", "30"):
+        response = client_module.requests.Response()
+        response.status_code = 429
+        response.headers["Retry-After"] = hint
+        responses.append(response)
+
+    def request(*_args, **kwargs):
+        calls.append(kwargs)
+        return responses.pop(0)
+
+    monkeypatch.setattr(client.session, "request", request)
+    monkeypatch.setattr(client_module.time, "sleep", waits.append)
+    monkeypatch.setattr(server, "SynthflowClient", lambda: client)
+    result = asyncio.run(_tool_result("who_am_i", {}))
+    assert result.is_error is True
+    assert _tool_text(result) == (
+        "Synthflow rate limit reached (HTTP 429). Retry after 30 seconds."
+    )
+    assert waits == [40]
+    assert len(calls) == 2
+    assert all(call["timeout"] == 30 for call in calls)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "expected"),
+    [
+        ("get_agent", "../x", "/assistants/..%2Fx"),
+        ("delete_agent", "../x", "/assistants/..%2Fx"),
+        ("get_call_transcript", "../x", "/calls/..%2Fx/transcript"),
+    ],
+)
+def test_string_ids_are_quoted_within_their_path_segment(
+    monkeypatch, method, path, expected
+):
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "fake-secret")
+    client = client_module.SynthflowClient()
+    seen: list[str] = []
+
+    class CaptureAdapter(BaseAdapter):
+        def send(self, request, **kwargs):
+            seen.append(request.url)
+            response = client_module.requests.Response()
+            response.status_code = 200
+            response._content = b"{}"
+            response.request = request
+            return response
+
+        def close(self):
+            pass
+
+    client.session.mount("https://", CaptureAdapter())
+
+    getattr(client, method)(path)
+    assert seen == [client_module.BASE_URL + expected]
+
+
+def test_setup_and_verify_fail_cleanly_without_credentials_or_with_bad_key(
+    monkeypatch, capsys
+):
+    monkeypatch.delenv("SYNTHFLOW_API_KEY", raising=False)
+    with pytest.raises(SystemExit) as missing_exit:
+        verify.main()
+    assert missing_exit.value.code == 1
+    verify_output = capsys.readouterr().out
+    assert verify_output == (
+        "Error: unable to verify the Synthflow connection.\n"
+        "Run synthflow-mcp-setup to configure your API key.\n"
+    )
+
+    monkeypatch.setattr(
+        "synthflow_mcp.setup.setup.getpass",
+        lambda _prompt: (_ for _ in ()).throw(EOFError),
+    )
+    from synthflow_mcp.setup import setup
+
+    with pytest.raises(SystemExit) as eof_exit:
+        setup.main()
+    assert eof_exit.value.code == 1
+    setup_output = capsys.readouterr().out
+    assert "no API key was provided" in setup_output
+    assert "Traceback" not in setup_output
+
+    monkeypatch.setattr("synthflow_mcp.setup.setup.getpass", lambda _prompt: "  ")
+    with pytest.raises(SystemExit) as blank_exit:
+        setup.main()
+    assert blank_exit.value.code == 1
+    blank_output = capsys.readouterr().out
+    assert blank_output == (
+        "Synthflow MCP Setup\n"
+        "Get your API key at: https://app.synthflow.ai → Settings → API\n"
+        "\n"
+        "Error: API key cannot be empty.\n"
+    )
+
+    class BadKeyClient:
+        def __init__(self):
+            pass
+
+        def who_am_i(self):
+            raise client_module.AuthenticationError("private response detail")
+
+    monkeypatch.setattr(verify, "logger", logging.getLogger("test.verify"))
+    monkeypatch.setattr(client_module, "SynthflowClient", BadKeyClient)
+    with pytest.raises(SystemExit) as bad_exit:
+        verify.main()
+    assert bad_exit.value.code == 1
+    bad_output = capsys.readouterr().out
+    assert "unable to verify" in bad_output
+    assert "Run synthflow-mcp-setup" in bad_output
+    assert "private response detail" not in bad_output
+
+
+def test_large_retry_hint_is_not_shortened_or_slept(monkeypatch):
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "fake-key")
+    client = client_module.SynthflowClient()
+    response = client_module.requests.Response()
+    response.status_code = 429
+    response.headers["Retry-After"] = "120"
+    monkeypatch.setattr(client.session, "request", lambda *a, **kw: response)
+    waits = []
+    monkeypatch.setattr(client_module.time, "sleep", waits.append)
+    monkeypatch.setattr(server, "SynthflowClient", lambda: client)
+    result = asyncio.run(_tool_result("who_am_i", {}))
+    assert result.is_error is True
+    assert (
+        _tool_text(result)
+        == "Synthflow rate limit reached (HTTP 429). Retry after 120 seconds."
+    )
+    assert waits == []
+
+
+def test_unsuccessful_200_cannot_be_a_successful_tool_result(monkeypatch):
+    monkeypatch.setenv("SYNTHFLOW_API_KEY", "fake-key")
+    client = client_module.SynthflowClient()
+    response = client_module.requests.Response()
+    response.status_code = 200
+    response._content = b'{"success":false,"error":"PRIVATE_SENTINEL"}'
+    monkeypatch.setattr(client.session, "request", lambda *a, **kw: response)
+    monkeypatch.setattr(server, "SynthflowClient", lambda: client)
+    result = asyncio.run(
+        _tool_result("initiate_call", {"agent_id": "fake", "to_number": "+15555550123"})
+    )
+    assert result.is_error is True
+    assert (
+        _tool_text(result)
+        == "Synthflow API error 200: the vendor reported that the operation failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "resource", [server.agents_resource, server.phone_numbers_resource]
+)
+def test_unexpected_resource_failure_is_masked(monkeypatch, resource):
+    from mcp.server.mcpserver.exceptions import ResourceError
+
+    def fail():
+        raise RuntimeError("PRIVATE_SENTINEL")
+
+    monkeypatch.setattr(server, "SynthflowClient", fail)
+    with pytest.raises(ResourceError) as caught:
+        resource()
+    assert (
+        str(caught.value)
+        == "Unable to read this Synthflow resource. Try again or check the connection."
+    )

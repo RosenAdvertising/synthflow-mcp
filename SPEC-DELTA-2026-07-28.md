@@ -12,8 +12,9 @@ client support, renames `FastMCP` to `MCPServer`, and moves transport settings
 to `run()` or the app builders
 ([SDK v2 overview](https://py.sdk.modelcontextprotocol.io/whats-new/),
 [v1-to-v2 migration guide](https://py.sdk.modelcontextprotocol.io/migration/)).
-The migration uses SDK 2.2.0 in the lock. Reproducible local check commands
-and scope notes are in [SPEC-MIGRATION-REPORT.md](SPEC-MIGRATION-REPORT.md).
+The migration uses SDK 2.2.0 in the lock. Reproducible local check commands,
+tested scope, and current safe error behavior are in
+[SPEC-MIGRATION-REPORT.md](SPEC-MIGRATION-REPORT.md).
 
 Verdicts below mean:
 

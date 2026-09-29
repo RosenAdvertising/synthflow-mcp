@@ -38,10 +38,10 @@ uv lock --offline --check
 These checks cover local protocol behavior and mocked vendor calls. Live
 Synthflow responses, ordering, and deployed transport behavior remain untested.
 
-## Open product decision
+## Error behavior
 
-MCP 2.2.0 masks messages from tool exceptions other than `ToolError` and
-`ResourceError`, returning a generic error to clients. Retaining that masking
-limits information leakage; raising explicitly safe `ToolError` messages could
-give clients more actionable feedback. Toby should decide which behavior to
-use. This migration leaves the existing tool exception handling unchanged.
+Tool failures are returned as MCP errors with typed, locally classified
+messages. Authentication, permission, rate-limit, validation, and transport
+failures use safe descriptions that omit vendor response bodies, credentials,
+argument values, and raw exception text. Resource handlers use the SDK resource
+error boundary; client-side failures are sanitized before they reach it.

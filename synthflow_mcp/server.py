@@ -6,7 +6,11 @@ import logging
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ToolError,
+    UnexpectedToolError,
+)
 from mcp.types import CallToolResult, TextContent
 from pydantic import ValidationError
 from pydantic import Field
@@ -50,6 +54,8 @@ class ActionableMCPServer(MCPServer):
             if isinstance(cause, client_errors.MissingCredentialsError):
                 message = str(cause)
             elif isinstance(cause, client_errors.AuthenticationError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.TransportError):
                 message = str(cause)
             elif isinstance(cause, client_errors.RateLimitError):
                 message = f"Synthflow rate limit reached (HTTP 429). Retry after {cause.retry_after} seconds."
@@ -296,16 +302,36 @@ def get_analytics(start_date: str = "", end_date: str = "") -> str:
 # ── Resources ─────────────────────────────────────────────────────────────────
 
 
+def _resource_json(read):
+    try:
+        return json.dumps(read(), indent=2)
+    except (
+        client_errors.MissingCredentialsError,
+        client_errors.AuthenticationError,
+        client_errors.TransportError,
+        client_errors.RateLimitError,
+        client_errors.NotFoundError,
+        client_errors.VendorHTTPError,
+    ) as exc:
+        raise ResourceError(str(exc)) from None
+    except Exception:
+        raise ResourceError(
+            "Unable to read this Synthflow resource. Try again or check the connection."
+        ) from None
+
+
 @mcp.resource("synthflow://agents", mime_type="application/json")
 def agents_resource() -> str:
     """All Synthflow voice agents configured in this account — read-only reference data."""
-    return json.dumps(SynthflowClient().list_agents(page=1, limit=100), indent=2)
+    return _resource_json(lambda: SynthflowClient().list_agents(page=1, limit=100))
 
 
 @mcp.resource("synthflow://phone_numbers", mime_type="application/json")
 def phone_numbers_resource() -> str:
     """All provisioned Synthflow phone numbers — read-only reference data."""
-    return json.dumps(SynthflowClient().list_phone_numbers(page=1, limit=100), indent=2)
+    return _resource_json(
+        lambda: SynthflowClient().list_phone_numbers(page=1, limit=100)
+    )
 
 
 @mcp.resource("synthflow://security-notes", mime_type="text/markdown")
@@ -345,9 +371,10 @@ code, `.env` files committed to version control, or plain-text logs.
 
 ## Rate limiting
 
-Synthflow enforces per-account rate limits. The client retries up to 3 times on 429s.
-Automated pipelines that enumerate calls or transcripts should add explicit pacing to
-avoid exhausting the retry budget for interactive sessions.
+Synthflow enforces per-account rate limits. The client retries up to three times
+on 429 responses, with no more than 60 seconds of cumulative waiting per tool
+call. Automated pipelines that enumerate calls or transcripts should add pacing
+to reduce rate limits during interactive sessions.
 """
 
 

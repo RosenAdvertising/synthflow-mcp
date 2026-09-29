@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -11,6 +12,8 @@ from synthflow_mcp import credentials
 # Synthflow uses regional endpoints. The global api.synthflow.ai does not route
 # to US-provisioned accounts — use the US regional endpoint.
 BASE_URL = "https://api.us.synthflow.ai/v2"
+REQUEST_TIMEOUT = 30
+MAX_RETRY_WAIT = 60
 logger = logging.getLogger(__name__)
 
 
@@ -20,6 +23,20 @@ class MissingCredentialsError(RuntimeError):
 
 class AuthenticationError(RuntimeError):
     pass
+
+
+class TransportError(RuntimeError):
+    def __init__(self, method: str, kind: str):
+        self.method = method.upper()
+        self.kind = kind
+        if self.method in {"GET", "HEAD", "OPTIONS"}:
+            action = "Retry the read when the connection is available."
+        else:
+            action = (
+                "The outcome is unknown. Check whether the operation completed "
+                "before retrying."
+            )
+        super().__init__(f"Synthflow {kind}. {action}")
 
 
 class VendorHTTPError(RuntimeError):
@@ -87,14 +104,14 @@ credentials.load_into_environ(["SYNTHFLOW_API_KEY"])
 
 def _retry_after_seconds(resp, default=10):
     try:
-        return int(resp.headers.get("Retry-After", default))
+        return max(1, int(resp.headers.get("Retry-After", default)))
     except (TypeError, ValueError):
         return default
 
 
 def _json_response(resp):
     try:
-        return resp.json()
+        payload = resp.json()
     except ValueError:
         logger.error(
             "Synthflow response rejected",
@@ -108,6 +125,12 @@ def _json_response(resp):
             resp.status_code, "the service returned invalid JSON"
         ) from None
 
+    if isinstance(payload, dict) and payload.get("success") is False:
+        raise VendorHTTPError(
+            resp.status_code, "the vendor reported that the operation failed"
+        )
+    return payload
+
 
 class SynthflowClient:
     def __init__(self):
@@ -118,7 +141,8 @@ class SynthflowClient:
                 extra={"event": "synthflow_credentials_missing"},
             )
             raise MissingCredentialsError(
-                "No Synthflow API key found (SYNTHFLOW_API_KEY). Run: synthflow-mcp-setup"
+                "No Synthflow API key found (SYNTHFLOW_API_KEY). Run "
+                "synthflow-mcp-setup, then restart the MCP server."
             )
         self.session = requests.Session()
         self.session.headers.update(
@@ -129,9 +153,50 @@ class SynthflowClient:
             }
         )
 
-    def _request(self, method, path, params=None, json_body=None, _rate_retries=0):
+    def _request(
+        self,
+        method,
+        path,
+        params=None,
+        json_body=None,
+        _rate_retries=0,
+        _rate_waited=0,
+    ):
         url = f"{BASE_URL}/{path.lstrip('/')}"
-        resp = self.session.request(method, url, params=params, json=json_body)
+        try:
+            resp = self.session.request(
+                method, url, params=params, json=json_body, timeout=REQUEST_TIMEOUT
+            )
+        except requests.Timeout:
+            logger.warning(
+                "Synthflow request failed",
+                extra={
+                    "event": "synthflow_transport_error",
+                    "reason": "timeout",
+                    "method": method.upper(),
+                },
+            )
+            raise TransportError(method, "request timed out") from None
+        except requests.ConnectionError:
+            logger.warning(
+                "Synthflow request failed",
+                extra={
+                    "event": "synthflow_transport_error",
+                    "reason": "connection",
+                    "method": method.upper(),
+                },
+            )
+            raise TransportError(method, "connection failed") from None
+        except requests.RequestException:
+            logger.warning(
+                "Synthflow request failed",
+                extra={
+                    "event": "synthflow_transport_error",
+                    "reason": "request_failed",
+                    "method": method.upper(),
+                },
+            )
+            raise TransportError(method, "request failed") from None
         if resp.status_code == 401:
             logger.warning(
                 "Synthflow request rejected",
@@ -142,14 +207,20 @@ class SynthflowClient:
                 },
             )
             raise AuthenticationError(
-                "Synthflow API key invalid or expired. Re-authorize with: synthflow-mcp-setup"
+                "Synthflow authentication failed. Check the API key and run "
+                "synthflow-mcp-setup to replace it; restart the MCP server after setup."
             )
         if resp.status_code == 403:
             raise AuthenticationError(
-                "Synthflow authorization was rejected. Re-authorize with: synthflow-mcp-setup"
+                "Synthflow access denied: the connected account lacks permission for "
+                "this action (or the authorization expired; re-run "
+                "synthflow-mcp-setup if so)."
             )
         if resp.status_code == 429 and _rate_retries < 3:
-            wait = min(max(_retry_after_seconds(resp, default=10), 1), 60)
+            retry_hint = _retry_after_seconds(resp, default=10)
+            if _rate_waited + retry_hint > MAX_RETRY_WAIT:
+                raise RateLimitError(retry_hint)
+            wait = min(retry_hint, MAX_RETRY_WAIT)
             logger.warning(
                 "Synthflow request deferred",
                 extra={
@@ -167,11 +238,10 @@ class SynthflowClient:
                 params=params,
                 json_body=json_body,
                 _rate_retries=_rate_retries + 1,
+                _rate_waited=_rate_waited + wait,
             )
         if resp.status_code == 429:
-            raise RateLimitError(
-                min(max(_retry_after_seconds(resp, default=10), 1), 60)
-            )
+            raise RateLimitError(_retry_after_seconds(resp, default=10))
         if resp.status_code == 204:
             return {"success": True}
         if not resp.ok:
@@ -214,7 +284,7 @@ class SynthflowClient:
         return self.get("/assistants", params={"page": page, "limit": limit})
 
     def get_agent(self, agent_id):
-        return self.get(f"/assistants/{agent_id}")
+        return self.get(f"/assistants/{quote(str(agent_id), safe='')}")
 
     def create_agent(
         self,
@@ -247,10 +317,12 @@ class SynthflowClient:
             body["agent"] = {"prompt": system_prompt}
         if voice_id:
             body.setdefault("agent", {})["voice_id"] = voice_id
-        return self._request("PUT", f"/assistants/{agent_id}", json_body=body)
+        return self._request(
+            "PUT", f"/assistants/{quote(str(agent_id), safe='')}", json_body=body
+        )
 
     def delete_agent(self, agent_id):
-        return self.delete(f"/assistants/{agent_id}")
+        return self.delete(f"/assistants/{quote(str(agent_id), safe='')}")
 
     # --- Phone Numbers ---
 
@@ -258,7 +330,7 @@ class SynthflowClient:
         return self.get("/numbers", params={"page": page, "limit": limit})
 
     def get_phone_number(self, number_id):
-        return self.get(f"/numbers/{number_id}")
+        return self.get(f"/numbers/{quote(str(number_id), safe='')}")
 
     def provision_phone_number(self, area_code="", country="US"):
         body = {"country": country}
@@ -267,7 +339,9 @@ class SynthflowClient:
         return self.post("/numbers", body=body)
 
     def assign_agent_to_number(self, number_id, agent_id):
-        return self.patch(f"/numbers/{number_id}", body={"agent_id": agent_id})
+        return self.patch(
+            f"/numbers/{quote(str(number_id), safe='')}", body={"agent_id": agent_id}
+        )
 
     # --- Calls ---
 
@@ -279,10 +353,10 @@ class SynthflowClient:
         return self.get("/calls", params=params)
 
     def get_call(self, call_id):
-        return self.get(f"/calls/{call_id}")
+        return self.get(f"/calls/{quote(str(call_id), safe='')}")
 
     def get_call_transcript(self, call_id):
-        return self.get(f"/calls/{call_id}/transcript")
+        return self.get(f"/calls/{quote(str(call_id), safe='')}/transcript")
 
     def initiate_call(self, agent_id, to_number, name="", from_number=""):
         # API fields: model_id (agent), phone (recipient number), name (recipient name).
