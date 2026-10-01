@@ -93,8 +93,9 @@ falls back to a `~/.synthflow-mcp/.env` file with `0600` permissions:
 SYNTHFLOW_API_KEY=your_api_key_here
 ```
 
-On Windows, the OS credential store is used; the file fallback is not supported
-because private secret-file writes require `os.fchmod`.
+On Windows, the file is stored in the user's profile and protected by Windows'
+default per-user access rules. On POSIX, files are created with `0600` permissions
+and writes fail closed if private permissions cannot be established.
 
 **Read order.** Values resolve in the order OS keyring → process environment →
 `.env` file. So a rotated key in the keyring always wins, and a value exported in
