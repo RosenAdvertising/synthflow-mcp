@@ -12,11 +12,10 @@ from mcp.server.mcpserver.exceptions import (
     UnexpectedToolError,
 )
 from mcp.types import CallToolResult, TextContent
-from pydantic import ValidationError
-from pydantic import Field
+from pydantic import Field, ValidationError
 
-from .client import SynthflowClient
 from . import client as client_errors
+from .client import SynthflowClient
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +69,8 @@ class ActionableMCPServer(MCPServer):
                 content=[TextContent(type="text", text=message)], is_error=True
             )
         except ToolError as exc:
+            if isinstance(exc.__cause__, client_errors.PathIdentifierError):
+                raise ToolError(str(exc.__cause__)) from None
             if isinstance(exc.__cause__, ValidationError):
                 registered = self._tool_manager.get_tool(name)
                 properties = (

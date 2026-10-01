@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import logging
 import os
+import re
 import sys
 import time
 from urllib.parse import quote
 
 import requests
+from mcp.server.mcpserver.exceptions import ToolError
 
 from synthflow_mcp import credentials
 
@@ -15,6 +17,26 @@ BASE_URL = "https://api.us.synthflow.ai/v2"
 REQUEST_TIMEOUT = 30
 MAX_RETRY_WAIT = 60
 logger = logging.getLogger(__name__)
+
+
+class PathIdentifierError(ToolError, ValueError):
+    """A safe, actionable rejection of an invalid path identifier."""
+
+
+def _path_id(value, parameter: str) -> str:
+    """Validate a plain identifier before URL quoting or any HTTP request."""
+    expected = (
+        "a non-empty plain identifier (ASCII letters, digits, -, _, ., ~); not . or .."
+    )
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (str, int))
+        or str(value) in {".", ".."}
+        or re.fullmatch(r"[A-Za-z0-9._~-]+", str(value)) is None
+    ):
+        message = f"Invalid argument '{parameter}': use {expected}."
+        raise PathIdentifierError(message)
+    return quote(str(value), safe="")
 
 
 class MissingCredentialsError(RuntimeError):
@@ -284,7 +306,7 @@ class SynthflowClient:
         return self.get("/assistants", params={"page": page, "limit": limit})
 
     def get_agent(self, agent_id):
-        return self.get(f"/assistants/{quote(str(agent_id), safe='')}")
+        return self.get(f"/assistants/{_path_id(agent_id, 'agent_id')}")
 
     def create_agent(
         self,
@@ -318,11 +340,11 @@ class SynthflowClient:
         if voice_id:
             body.setdefault("agent", {})["voice_id"] = voice_id
         return self._request(
-            "PUT", f"/assistants/{quote(str(agent_id), safe='')}", json_body=body
+            "PUT", f"/assistants/{_path_id(agent_id, 'agent_id')}", json_body=body
         )
 
     def delete_agent(self, agent_id):
-        return self.delete(f"/assistants/{quote(str(agent_id), safe='')}")
+        return self.delete(f"/assistants/{_path_id(agent_id, 'agent_id')}")
 
     # --- Phone Numbers ---
 
@@ -330,7 +352,7 @@ class SynthflowClient:
         return self.get("/numbers", params={"page": page, "limit": limit})
 
     def get_phone_number(self, number_id):
-        return self.get(f"/numbers/{quote(str(number_id), safe='')}")
+        return self.get(f"/numbers/{_path_id(number_id, 'number_id')}")
 
     def provision_phone_number(self, area_code="", country="US"):
         body = {"country": country}
@@ -340,7 +362,7 @@ class SynthflowClient:
 
     def assign_agent_to_number(self, number_id, agent_id):
         return self.patch(
-            f"/numbers/{quote(str(number_id), safe='')}", body={"agent_id": agent_id}
+            f"/numbers/{_path_id(number_id, 'number_id')}", body={"agent_id": agent_id}
         )
 
     # --- Calls ---
@@ -353,10 +375,10 @@ class SynthflowClient:
         return self.get("/calls", params=params)
 
     def get_call(self, call_id):
-        return self.get(f"/calls/{quote(str(call_id), safe='')}")
+        return self.get(f"/calls/{_path_id(call_id, 'call_id')}")
 
     def get_call_transcript(self, call_id):
-        return self.get(f"/calls/{quote(str(call_id), safe='')}/transcript")
+        return self.get(f"/calls/{_path_id(call_id, 'call_id')}/transcript")
 
     def initiate_call(self, agent_id, to_number, name="", from_number=""):
         # API fields: model_id (agent), phone (recipient number), name (recipient name).

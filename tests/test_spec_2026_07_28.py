@@ -12,16 +12,15 @@ from typing import Any
 
 import httpx
 import pytest
-from requests.adapters import BaseAdapter
 from mcp import Client
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import LATEST_PROTOCOL_VERSION
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from requests.adapters import BaseAdapter
 
 from synthflow_mcp import client as client_module
 from synthflow_mcp import server
 from synthflow_mcp.setup import verify
-
 
 PROTOCOL_VERSION = "2026-07-28"
 LEGACY_PROTOCOL_VERSION = "2025-11-25"
@@ -725,12 +724,12 @@ def test_request_timeout_and_retry_after_total_budget(monkeypatch):
 @pytest.mark.parametrize(
     ("method", "path", "expected"),
     [
-        ("get_agent", "../x", "/assistants/..%2Fx"),
-        ("delete_agent", "../x", "/assistants/..%2Fx"),
-        ("get_call_transcript", "../x", "/calls/..%2Fx/transcript"),
+        ("get_agent", "normal-id", "/assistants/normal-id"),
+        ("delete_agent", "normal-id", "/assistants/normal-id"),
+        ("get_call_transcript", "normal-id", "/calls/normal-id/transcript"),
     ],
 )
-def test_string_ids_are_quoted_within_their_path_segment(
+def test_string_ids_are_validated_within_their_path_segment(
     monkeypatch, method, path, expected
 ):
     monkeypatch.setenv("SYNTHFLOW_API_KEY", "fake-secret")
