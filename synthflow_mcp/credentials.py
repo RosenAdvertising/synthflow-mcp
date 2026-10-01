@@ -28,6 +28,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from synthflow_mcp.private_file import write_private_file
+
 # --- per-MCP configuration --------------------------------------------------
 SERVICE_NAME = "synthflow-mcp"
 CONFIG_DIR = Path.home() / ".synthflow-mcp"
@@ -97,11 +99,7 @@ def _write_env_file(values: dict[str, str]) -> None:
     except OSError:
         pass
     lines = [f"{k}={v}" for k, v in values.items()]
-    ENV_FILE.write_text("\n".join(lines) + ("\n" if lines else ""))
-    try:
-        ENV_FILE.chmod(0o600)
-    except OSError:
-        pass
+    write_private_file(ENV_FILE, "\n".join(lines) + ("\n" if lines else ""))
 
 
 def get_secret(key: str, default: str = "") -> str:

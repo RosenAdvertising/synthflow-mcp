@@ -102,3 +102,7 @@ install [`keyrings.cryptfile`](https://pypi.org/project/keyrings.cryptfile/) for
 an encrypted file backend, or a cloud backend, then select it with the standard
 `PYTHON_KEYRING_BACKEND` environment variable or a `keyringrc.cfg`. See the
 [keyring configuration docs](https://github.com/jaraco/keyring#configuring).
+
+`update_agent` requires at least one non-empty `name`, `system_prompt`, or
+`voice_id`. It uses Synthflow’s documented partial-update PUT endpoint: omitted
+parameters stay unchanged. See [Update an agent](https://docs.synthflow.ai/api-reference/platform-api/agents/update-assistant).

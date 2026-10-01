@@ -69,7 +69,13 @@ class ActionableMCPServer(MCPServer):
                 content=[TextContent(type="text", text=message)], is_error=True
             )
         except ToolError as exc:
-            if isinstance(exc.__cause__, client_errors.PathIdentifierError):
+            if isinstance(
+                exc.__cause__,
+                (
+                    client_errors.PathIdentifierError,
+                    client_errors.UpdateValidationError,
+                ),
+            ):
                 raise ToolError(str(exc.__cause__)) from None
             if isinstance(exc.__cause__, ValidationError):
                 registered = self._tool_manager.get_tool(name)
@@ -186,6 +192,7 @@ def update_agent(
     agent_id: str, name: str = "", system_prompt: str = "", voice_id: str = ""
 ) -> str:
     """Update an existing Synthflow agent's name, prompt, or voice."""
+    client_errors.validate_agent_update(name, system_prompt, voice_id)
     return json.dumps(
         SynthflowClient().update_agent(
             agent_id, name=name, system_prompt=system_prompt, voice_id=voice_id

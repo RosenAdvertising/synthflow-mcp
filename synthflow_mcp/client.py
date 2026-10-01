@@ -19,6 +19,10 @@ MAX_RETRY_WAIT = 60
 logger = logging.getLogger(__name__)
 
 
+class UpdateValidationError(ToolError, ValueError):
+    """A fixed, safe explanation for an empty update."""
+
+
 class PathIdentifierError(ToolError, ValueError):
     """A safe, actionable rejection of an invalid path identifier."""
 
@@ -331,7 +335,10 @@ class SynthflowClient:
         )
 
     def update_agent(self, agent_id, name="", system_prompt="", voice_id=""):
-        # API requires PUT (not PATCH) for agent updates.
+        path = f"/assistants/{_path_id(agent_id, 'agent_id')}"
+        validate_agent_update(name, system_prompt, voice_id)
+        # Documented partial PUT: omitted parameters are unchanged.
+        # https://docs.synthflow.ai/api-reference/platform-api/agents/update-assistant
         body = {}
         if name:
             body["name"] = name
@@ -339,9 +346,7 @@ class SynthflowClient:
             body["agent"] = {"prompt": system_prompt}
         if voice_id:
             body.setdefault("agent", {})["voice_id"] = voice_id
-        return self._request(
-            "PUT", f"/assistants/{_path_id(agent_id, 'agent_id')}", json_body=body
-        )
+        return self._request("PUT", path, json_body=body)
 
     def delete_agent(self, agent_id):
         return self.delete(f"/assistants/{_path_id(agent_id, 'agent_id')}")
@@ -404,3 +409,10 @@ class SynthflowClient:
         if end_date:
             params["end_date"] = end_date
         return self.get("/analytics", params=params if params else None)
+
+
+def validate_agent_update(name, system_prompt, voice_id):
+    if not any(value.strip() for value in (name, system_prompt, voice_id)):
+        raise UpdateValidationError(
+            "Supply at least one update field: name, system_prompt, or voice_id."
+        )
