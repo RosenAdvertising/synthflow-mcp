@@ -16,6 +16,7 @@ MCP server for [Synthflow Voice AI](https://synthflow.ai). Manage agents, phone 
 ## Requirements
 
 - Python 3.10+
+- Python MCP SDK >=2.2,<3; the wire protocol revision is 2026-07-28
 - A Synthflow account with an API key (Settings → API)
 
 ## Install
@@ -92,6 +93,10 @@ falls back to a `~/.synthflow-mcp/.env` file with `0600` permissions:
 SYNTHFLOW_API_KEY=your_api_key_here
 ```
 
+On Windows, the file is stored in the user's profile and protected by Windows'
+default per-user access rules. On POSIX, files are created with `0600` permissions
+and writes fail closed if private permissions cannot be established.
+
 **Read order.** Values resolve in the order OS keyring → process environment →
 `.env` file. So a rotated key in the keyring always wins, and a value exported in
 your shell overrides the file fallback without touching the keyring.
@@ -101,3 +106,7 @@ install [`keyrings.cryptfile`](https://pypi.org/project/keyrings.cryptfile/) for
 an encrypted file backend, or a cloud backend, then select it with the standard
 `PYTHON_KEYRING_BACKEND` environment variable or a `keyringrc.cfg`. See the
 [keyring configuration docs](https://github.com/jaraco/keyring#configuring).
+
+`update_agent` requires at least one non-empty `name`, `system_prompt`, or
+`voice_id`. It uses Synthflow’s documented partial-update PUT endpoint: omitted
+parameters stay unchanged. See [Update an agent](https://docs.synthflow.ai/api-reference/platform-api/agents/update-assistant).

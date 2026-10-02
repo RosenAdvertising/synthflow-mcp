@@ -2,10 +2,137 @@
 """Synthflow MCP Server — voice agent management, calls, transcripts, phone numbers."""
 
 import json
-from mcp.server.fastmcp import FastMCP
+import logging
+from typing import Annotated
+
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import (
+    ResourceError,
+    ToolError,
+    UnexpectedToolError,
+)
+from mcp.types import CallToolResult, TextContent
+from pydantic import Field, ValidationError
+
+from . import client as client_errors
 from .client import SynthflowClient
 
-mcp = FastMCP(
+logger = logging.getLogger(__name__)
+
+
+_ARGUMENT_SHAPES = {
+    (name, "page"): "integer of at least 1"
+    for name in (
+        "list_agents",
+        "list_phone_numbers",
+        "list_calls",
+        "list_knowledge_bases",
+    )
+}
+_ARGUMENT_SHAPES.update(
+    {
+        (name, "limit"): "integer between 1 and 200"
+        for name in (
+            "list_agents",
+            "list_phone_numbers",
+            "list_calls",
+            "list_knowledge_bases",
+        )
+    }
+)
+
+
+class ActionableMCPServer(MCPServer):
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except UnexpectedToolError as exc:
+            cause = exc.__cause__
+            while cause is not None and isinstance(cause, (UnexpectedToolError,)):
+                cause = cause.__cause__
+            if isinstance(cause, client_errors.MissingCredentialsError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.AuthenticationError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.TransportError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.RateLimitError):
+                message = f"Synthflow rate limit reached (HTTP 429). Retry after {cause.retry_after} seconds."
+            elif isinstance(cause, client_errors.NotFoundError):
+                message = str(cause)
+            elif isinstance(cause, client_errors.VendorHTTPError):
+                message = str(cause)
+            else:
+                logger.warning("Tool call failed: unexpected error (tool=%s)", name)
+                message = f"Error executing tool {name}"
+            return CallToolResult(
+                content=[TextContent(type="text", text=message)], is_error=True
+            )
+        except ToolError as exc:
+            if isinstance(
+                exc.__cause__,
+                (
+                    client_errors.PathIdentifierError,
+                    client_errors.UpdateValidationError,
+                ),
+            ):
+                raise ToolError(str(exc.__cause__)) from None
+            if isinstance(exc.__cause__, ValidationError):
+                registered = self._tool_manager.get_tool(name)
+                properties = (
+                    registered.parameters.get("properties", {}) if registered else {}
+                )
+                details = []
+                for issue in exc.__cause__.errors(
+                    include_input=False, include_url=False
+                ):
+                    field = (issue.get("loc") or ("argument",))[0]
+                    if not isinstance(field, str) or field not in properties:
+                        field = "argument"
+                    shape = _ARGUMENT_SHAPES.get(
+                        (name, field),
+                        properties.get(field, {}).get(
+                            "type", "the registered input shape"
+                        ),
+                    )
+                    if not isinstance(shape, str):
+                        shape = "the registered input shape"
+                    if issue["type"] == "missing":
+                        shape = "required " + shape
+                    detail = f"Invalid argument '{field}': expected {shape}."
+                    if detail not in details:
+                        details.append(detail)
+                message = (
+                    " ".join(details)
+                    or "Invalid tool arguments. Check the registered input shape."
+                )
+                logger.info("Tool call rejected: invalid arguments (tool=%s)", name)
+                return CallToolResult(
+                    content=[TextContent(type="text", text=message)], is_error=True
+                )
+            registered_names = {tool.name for tool in await self.list_tools()}
+            safe_name = name if name in registered_names else "unknown"
+            logger.warning("Tool call failed: anticipated error (tool=%s)", safe_name)
+            return CallToolResult(
+                content=[
+                    TextContent(type="text", text=f"Error executing tool {safe_name}")
+                ],
+                is_error=True,
+            )
+
+
+ListLimit = Annotated[
+    int,
+    Field(
+        ge=1,
+        le=200,
+        description="Maximum records returned by this tool call.",
+    ),
+]
+PageNumber = Annotated[int, Field(ge=1, description="One-based API page number.")]
+
+
+mcp = ActionableMCPServer(
     "synthflow-mcp",
     instructions="Full access to Synthflow Voice AI: manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics.",
 )
@@ -24,8 +151,8 @@ def who_am_i() -> str:
 
 
 @mcp.tool()
-def list_agents(page: int = 1, limit: int = 25) -> str:
-    """List all Synthflow voice agents."""
+def list_agents(page: PageNumber = 1, limit: ListLimit = 25) -> str:
+    """List at most limit Synthflow voice agents from one API page."""
     return json.dumps(SynthflowClient().list_agents(page=page, limit=limit), indent=2)
 
 
@@ -65,6 +192,7 @@ def update_agent(
     agent_id: str, name: str = "", system_prompt: str = "", voice_id: str = ""
 ) -> str:
     """Update an existing Synthflow agent's name, prompt, or voice."""
+    client_errors.validate_agent_update(name, system_prompt, voice_id)
     return json.dumps(
         SynthflowClient().update_agent(
             agent_id, name=name, system_prompt=system_prompt, voice_id=voice_id
@@ -83,8 +211,8 @@ def delete_agent(agent_id: str) -> str:
 
 
 @mcp.tool()
-def list_phone_numbers(page: int = 1, limit: int = 25) -> str:
-    """List all provisioned Synthflow phone numbers."""
+def list_phone_numbers(page: PageNumber = 1, limit: ListLimit = 25) -> str:
+    """List at most limit provisioned phone numbers from one API page."""
     return json.dumps(
         SynthflowClient().list_phone_numbers(page=page, limit=limit), indent=2
     )
@@ -117,8 +245,8 @@ def assign_agent_to_number(number_id: str, agent_id: str) -> str:
 
 
 @mcp.tool()
-def list_calls(page: int = 1, limit: int = 25, agent_id: str = "") -> str:
-    """List calls, optionally filtered by agent ID."""
+def list_calls(page: PageNumber = 1, limit: ListLimit = 25, agent_id: str = "") -> str:
+    """List at most limit calls from one API page, optionally by agent ID."""
     return json.dumps(
         SynthflowClient().list_calls(page=page, limit=limit, agent_id=agent_id),
         indent=2,
@@ -154,8 +282,8 @@ def initiate_call(
 
 
 @mcp.tool()
-def list_knowledge_bases(page: int = 1, limit: int = 25) -> str:
-    """List all knowledge bases in Synthflow."""
+def list_knowledge_bases(page: PageNumber = 1, limit: ListLimit = 25) -> str:
+    """List at most limit knowledge bases from one API page."""
     return json.dumps(
         SynthflowClient().list_knowledge_bases(page=page, limit=limit), indent=2
     )
@@ -182,16 +310,36 @@ def get_analytics(start_date: str = "", end_date: str = "") -> str:
 # ── Resources ─────────────────────────────────────────────────────────────────
 
 
+def _resource_json(read):
+    try:
+        return json.dumps(read(), indent=2)
+    except (
+        client_errors.MissingCredentialsError,
+        client_errors.AuthenticationError,
+        client_errors.TransportError,
+        client_errors.RateLimitError,
+        client_errors.NotFoundError,
+        client_errors.VendorHTTPError,
+    ) as exc:
+        raise ResourceError(str(exc)) from None
+    except Exception:
+        raise ResourceError(
+            "Unable to read this Synthflow resource. Try again or check the connection."
+        ) from None
+
+
 @mcp.resource("synthflow://agents", mime_type="application/json")
 def agents_resource() -> str:
     """All Synthflow voice agents configured in this account — read-only reference data."""
-    return json.dumps(SynthflowClient().list_agents(page=1, limit=100), indent=2)
+    return _resource_json(lambda: SynthflowClient().list_agents(page=1, limit=100))
 
 
 @mcp.resource("synthflow://phone_numbers", mime_type="application/json")
 def phone_numbers_resource() -> str:
     """All provisioned Synthflow phone numbers — read-only reference data."""
-    return json.dumps(SynthflowClient().list_phone_numbers(page=1, limit=100), indent=2)
+    return _resource_json(
+        lambda: SynthflowClient().list_phone_numbers(page=1, limit=100)
+    )
 
 
 @mcp.resource("synthflow://security-notes", mime_type="text/markdown")
@@ -231,9 +379,10 @@ code, `.env` files committed to version control, or plain-text logs.
 
 ## Rate limiting
 
-Synthflow enforces per-account rate limits. The client retries up to 3 times on 429s.
-Automated pipelines that enumerate calls or transcripts should add explicit pacing to
-avoid exhausting the retry budget for interactive sessions.
+Synthflow enforces per-account rate limits. The client retries up to three times
+on 429 responses, with no more than 60 seconds of cumulative waiting per tool
+call. Automated pipelines that enumerate calls or transcripts should add pacing
+to reduce rate limits during interactive sessions.
 """
 
 
