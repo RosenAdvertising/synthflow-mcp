@@ -16,7 +16,7 @@ MCP server for [Synthflow Voice AI](https://synthflow.ai). Manage agents, phone 
 ## Requirements
 
 - Python 3.10+
-- Python MCP SDK >=2.2,<3; the wire protocol revision is 2026-07-28
+- Python MCP SDK >=2.3,<3; the wire protocol revision is 2026-07-28
 - A Synthflow account with an API key (Settings → API)
 
 ## Install
@@ -47,6 +47,26 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```
 
 Restart Claude Desktop after saving.
+
+## HTTP mode
+
+Stdio, above, stays the default. Set `SYNTHFLOW_MCP_TRANSPORT=streamable-http` to serve the stateless Streamable HTTP transport. The endpoint is `/mcp`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SYNTHFLOW_MCP_TRANSPORT` | `stdio` | `stdio` or `streamable-http` |
+| `SYNTHFLOW_MCP_HOST` | `127.0.0.1` | Bind address. Exactly `127.0.0.1`, `localhost`, or `::1` is protected by the SDK. Every other spelling requires `SYNTHFLOW_MCP_ALLOWED_HOSTS`. |
+| `PORT` | `8080` | Bind port. Must be an integer. |
+| `SYNTHFLOW_MCP_ALLOWED_HOSTS` | unset | Comma-separated `Host` values required for every bind spelling other than exactly `127.0.0.1`, `localhost`, or `::1`. |
+| `SYNTHFLOW_MCP_ALLOWED_ORIGINS` | unset | Optional comma-separated `Origin` values checked with that host list. |
+| `SYNTHFLOW_API_KEY` | unset | Synthflow API key. A value already in the process environment is used as-is, and keyring and file lookup are skipped. When it is unset, the server loads the OS keyring, then the file fallback. Never read from the HTTP request. |
+| `SYNTHFLOW_MCP_USE_KEYRING` | `1` | Set to `0` to skip the OS keyring and use the file fallback. |
+
+```bash
+SYNTHFLOW_API_KEY=your_api_key_here SYNTHFLOW_MCP_TRANSPORT=streamable-http PORT=8080 synthflow-mcp
+```
+
+That listens on `http://127.0.0.1:8080/mcp`. For any other bind address, set `SYNTHFLOW_MCP_ALLOWED_HOSTS` to the `Host` values clients will send.
 
 ## Tools (17)
 

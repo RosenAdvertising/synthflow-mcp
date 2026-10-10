@@ -3,6 +3,8 @@
 
 import json
 import logging
+import os
+from importlib.metadata import version as package_version
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
@@ -11,6 +13,7 @@ from mcp.server.mcpserver.exceptions import (
     ToolError,
     UnexpectedToolError,
 )
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent
 from pydantic import Field, ValidationError
 
@@ -134,6 +137,8 @@ PageNumber = Annotated[int, Field(ge=1, description="One-based API page number."
 
 mcp = ActionableMCPServer(
     "synthflow-mcp",
+    title="Synthflow MCP",
+    version=package_version("synthflow-mcp"),
     instructions="Full access to Synthflow Voice AI: manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics.",
 )
 
@@ -463,8 +468,95 @@ def review_agent_performance() -> str:
    For any recommended prompt change, draft the revised system_prompt text."""
 
 
+STREAMABLE_HTTP_TRANSPORT = "streamable-http"
+
+
+def _requested_transport() -> str:
+    return os.environ.get("SYNTHFLOW_MCP_TRANSPORT", "stdio").strip().lower() or "stdio"
+
+
+def _host() -> str:
+    return os.environ.get("SYNTHFLOW_MCP_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def _port() -> int:
+    raw = os.environ.get("PORT", "8080").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        raise SystemExit(f"PORT must be an integer, got {raw!r}") from None
+
+
+# streamable_http_app applies Host and Origin checks itself only when
+# transport_security is None and host is one of these exact strings.
+_SDK_PROTECTED_BIND_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _transport_security() -> TransportSecuritySettings | None:
+    """Return None only when the SDK auto-protects this exact bind host.
+
+    Other spellings, including other loopback forms, need an explicit allow-list
+    so a request cannot skip Host and Origin validation.
+    """
+    host = _host()
+    if host in _SDK_PROTECTED_BIND_HOSTS:
+        return None
+    allowed_hosts = [
+        item.strip()
+        for item in os.environ.get("SYNTHFLOW_MCP_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    ]
+    if not allowed_hosts:
+        raise SystemExit(
+            "SYNTHFLOW_MCP_ALLOWED_HOSTS is required when SYNTHFLOW_MCP_HOST "
+            f"is not exactly 127.0.0.1, localhost, or ::1 (got {host!r})"
+        )
+    allowed_origins = [
+        item.strip()
+        for item in os.environ.get("SYNTHFLOW_MCP_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    ]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed_hosts,
+        allowed_origins=allowed_origins,
+    )
+
+
+def create_serve_app():
+    """Stateless Streamable HTTP app. JSON responses stay off so disconnects cancel."""
+    return mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        host=_host(),
+        stateless_http=True,
+        transport_security=_transport_security(),
+    )
+
+
+def _serve_streamable_http() -> None:
+    import uvicorn
+
+    config = uvicorn.Config(
+        create_serve_app(),
+        host=_host(),
+        port=_port(),
+        access_log=False,
+    )
+    uvicorn.Server(config).run()
+
+
 def main():
-    mcp.run()
+    transport = _requested_transport()
+    if transport == "stdio":
+        mcp.run()
+        return
+    if transport == STREAMABLE_HTTP_TRANSPORT:
+        _serve_streamable_http()
+        return
+    raise SystemExit(
+        "Unsupported SYNTHFLOW_MCP_TRANSPORT "
+        f"{transport!r}; expected 'stdio' or '{STREAMABLE_HTTP_TRANSPORT}'."
+    )
 
 
 if __name__ == "__main__":
