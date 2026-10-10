@@ -5,9 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "synthflow-mcp"
 version = "0.1.0"
-description = "MCP server for Synthflow Voice AI — agent management, calls, transcripts, phone numbers"
+description = "MCP server for Synthflow: voice agents, calls, numbers and knowledge bases."
 license = { text = "MIT" }
 requires-python = ">=3.10"
+classifiers = [
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
 dependencies = [
     "mcp>=2.3,<3",
     "pydantic>=2.13.4,<3",
@@ -27,6 +38,11 @@ dev = [
 synthflow-mcp = "synthflow_mcp.server:main"
 synthflow-mcp-setup = "synthflow_mcp.setup.setup:main"
 synthflow-mcp-verify = "synthflow_mcp.setup.verify:main"
+
+[project.urls]
+Homepage = "https://github.com/RosenAdvertising/synthflow-mcp"
+Repository = "https://github.com/RosenAdvertising/synthflow-mcp"
+Issues = "https://github.com/RosenAdvertising/synthflow-mcp/issues"
 
 [tool.pyright]
 include = ["."]
