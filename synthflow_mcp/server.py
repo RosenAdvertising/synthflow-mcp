@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Synthflow MCP Server — voice agent management, calls, transcripts, phone numbers."""
 
+import importlib.metadata
 import json
 import logging
 import os
-from importlib.metadata import version as package_version
 from typing import Annotated
 
 from mcp.server.mcpserver import MCPServer
@@ -135,10 +135,21 @@ ListLimit = Annotated[
 PageNumber = Annotated[int, Field(ge=1, description="One-based API page number.")]
 
 
+def _server_version() -> str:
+    try:
+        return importlib.metadata.version("synthflow-mcp")
+    except importlib.metadata.PackageNotFoundError:
+        try:
+            from . import __version__ as pkg_version
+        except ImportError:
+            return "0.0.0+local"
+        return str(pkg_version)
+
+
 mcp = ActionableMCPServer(
     "synthflow-mcp",
     title="Synthflow MCP",
-    version=package_version("synthflow-mcp"),
+    version=_server_version(),
     instructions="Full access to Synthflow Voice AI: manage agents, phone numbers, calls, transcripts, knowledge bases, and analytics.",
 )
 

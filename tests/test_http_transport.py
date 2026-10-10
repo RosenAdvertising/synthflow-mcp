@@ -388,3 +388,56 @@ def test_non_integer_port_exits(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit) as caught:
         server._port()
     assert "PORT" in str(caught.value)
+
+
+def test_empty_transport_selects_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SYNTHFLOW_MCP_TRANSPORT", "")
+    assert server._requested_transport() == "stdio"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    monkeypatch.setattr(server.mcp, "run", lambda *a, **k: calls.append((a, k)))
+    server.main()
+    assert calls == [((), {})]
+
+
+def test_whitespace_transport_selects_stdio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SYNTHFLOW_MCP_TRANSPORT", "   ")
+    assert server._requested_transport() == "stdio"
+
+
+def test_empty_host_yields_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SYNTHFLOW_MCP_HOST", "")
+    assert server._host() == "127.0.0.1"
+    monkeypatch.delenv("SYNTHFLOW_MCP_ALLOWED_HOSTS", raising=False)
+    assert server.create_serve_app() is not None
+
+
+def test_whitespace_host_yields_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SYNTHFLOW_MCP_HOST", "   ")
+    assert server._host() == "127.0.0.1"
+
+
+def test_uppercase_localhost_is_non_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SYNTHFLOW_MCP_HOST", "LOCALHOST")
+    assert server._host() == "LOCALHOST"
+    monkeypatch.delenv("SYNTHFLOW_MCP_ALLOWED_HOSTS", raising=False)
+    with pytest.raises(SystemExit) as caught:
+        server.create_serve_app()
+    assert "SYNTHFLOW_MCP_ALLOWED_HOSTS" in str(caught.value)
+
+
+def test_server_import_without_installed_distribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib
+    import importlib.metadata
+
+    def _missing(_name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError(_name)
+
+    monkeypatch.setattr(importlib.metadata, "version", _missing)
+    reloaded = importlib.reload(server)
+    assert reloaded.mcp is not None
